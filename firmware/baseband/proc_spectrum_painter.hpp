@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Jared Boone, ShareBrained Technology, Inc.
+ * Copyright (C) 2023 Bernd Herzog
  *
  * This file is part of PortaPack.
  *
@@ -19,35 +19,28 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef __LOG_FILE_H__
-#define __LOG_FILE_H__
+#pragma once
 
-#include <string>
+#include "portapack_shared_memory.hpp"
+#include "baseband_processor.hpp"
+#include "baseband_thread.hpp"
 
-#include "file.hpp"
-
-#include "lpc43xx_cpp.hpp"
-
-using namespace lpc43xx;
-
-#define LOG_ROOT_DIR "LOGS"
-
-class LogFile {
+class SpectrumPainterProcessor : public BasebandProcessor {
 public:
-	Optional<File::Error> append(const std::filesystem::path& filename) {
-		auto result = ensure_directory(filename.parent_path());
-		if (result.code())
-			return { result };
-		
-		return file.append(filename);
-	}
-
-	Optional<File::Error> write_entry(const rtc::RTC& datetime, const std::string& entry);
+	void execute(const buffer_c8_t& buffer) override;
+	void on_message(const Message* const p) override;
+	void run();
 
 private:
-	File file { };
+	bool configured { false };
+	BasebandThread baseband_thread { 3072000, this, NORMALPRIO + 20, baseband::Direction::Transmit };
+	Thread* thread {nullptr};
 
-	Optional<File::Error> write_line(const std::string& message);
+protected:
+	static msg_t fn(void* arg) {
+		auto obj = static_cast<SpectrumPainterProcessor*>(arg);
+		obj->run();
+
+		return 0;
+	}
 };
-
-#endif/*__LOG_FILE_H__*/

@@ -73,6 +73,7 @@
 #include "ui_whipcalc.hpp"
 #include "ui_flash_utility.hpp"
 #include "ui_sd_over_usb.hpp"
+#include "ui_spectrum_painter.hpp"
 
 //#include "acars_app.hpp"
 #include "ais_app.hpp"
@@ -367,13 +368,15 @@ void SystemStatusView::on_bias_tee() {
 }*/
 
 void SystemStatusView::on_camera() {
-	auto path = next_filename_stem_matching_pattern(u"SCR_????");
+	ensure_directory("SCREENSHOTS");
+	auto path = next_filename_matching_pattern(u"SCREENSHOTS/SCR_????.PNG");
+
 	if( path.empty() ) {
 		return;
 	}
 
 	PNGWriter png;
-	auto create_error = png.create(path.replace_extension(u".PNG"));
+	auto create_error = png.create(path);
 	if( create_error.is_valid() ) {
 		return;
 	}
@@ -594,6 +597,7 @@ TransmittersMenuView::TransmittersMenuView(NavigationView& nav) {
 		{ "TEDI/LCR",		ui::Color::yellow(),	&bitmap_icon_lcr,		[&nav](){ nav.push<LCRView>(); } },
 		{ "TouchTune",		ui::Color::yellow(),	&bitmap_icon_remote,	[&nav](){ nav.push<TouchTunesView>(); } },
 		{ "Playlist",		ui::Color::yellow(),	&bitmap_icon_remote,	[&nav](){ nav.push<PlaylistView>(); } },
+		{ "S.Painter",		ui::Color::orange(),	&bitmap_icon_morse,		[&nav](){ nav.push<SpectrumPainterView>(); } },
 		//{ "Remote",			ui::Color::dark_grey(),	&bitmap_icon_remote,	[&nav](){ nav.push<RemoteView>(); } },
 	});
 }

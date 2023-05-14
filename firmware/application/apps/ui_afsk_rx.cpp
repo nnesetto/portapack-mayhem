@@ -98,7 +98,7 @@ AFSKRxView::AFSKRxView(NavigationView& nav) {
 		};
 	};
 
-    check_log.set_value(logging);
+	check_log.set_value(logging);
 	check_log.on_select = [this](Checkbox&, bool v) {
 		logging = v;
 	};
@@ -107,10 +107,9 @@ AFSKRxView::AFSKRxView(NavigationView& nav) {
 		nav.push<ModemSetupView>();
 	};
 	
-	make_new_directory(LOG_ROOT_DIR);
 	logger = std::make_unique<AFSKLogger>();
 	if (logger)
-		logger->append( LOG_ROOT_DIR "/AFSK.TXT" );
+		logger->append(LOG_ROOT_DIR "/AFSK.TXT");
 	
 	// Auto-configure modem for LCR RX (will be removed later)
 	baseband::set_afsk(persistent_memory::modem_baudrate(), 8, 0, false);
@@ -166,7 +165,7 @@ void AFSKRxView::on_data(uint32_t value, bool is_data) {
 		}
 		prev_value = value;
 	}
-    else {
+	else {
 		// Baudrate estimation
 		text_debug.set("Baudrate estimation: ~" + to_string_dec_uint(value));
 	}
