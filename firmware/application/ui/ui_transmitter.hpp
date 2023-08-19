@@ -26,9 +26,9 @@
 #include "ui.hpp"
 #include "ui_navigation.hpp"
 #include "ui_painter.hpp"
+#include "ui_styles.hpp"
 #include "ui_widget.hpp"
 #include "ui_receiver.hpp"
-#include "ui_font_fixed_8x16.hpp"
 
 #include "rf_path.hpp"
 
@@ -73,36 +73,12 @@ class TransmitterView : public View {
     void set_transmitting(const bool transmitting);
 
    private:
-    const Style style_start{
-        .font = font::fixed_8x16,
-        .background = Color::black(),
-        .foreground = Color::green(),
-    };
-    const Style style_stop{
-        .font = font::fixed_8x16,
-        .background = Color::black(),
-        .foreground = Color::red(),
-    };
-    const Style style_locked{
-        .font = font::fixed_8x16,
-        .background = Color::black(),
-        .foreground = Color::dark_grey(),
-    };
-    const Style style_power_low{
-        .font = font::fixed_8x16,
-        .background = Color::black(),
-        .foreground = Color::yellow(),
-    };
-    const Style style_power_med{
-        .font = font::fixed_8x16,
-        .background = Color::black(),
-        .foreground = Color::orange(),
-    };
-    const Style style_power_high{
-        .font = font::fixed_8x16,
-        .background = Color::black(),
-        .foreground = Color::red(),
-    };
+    const Style& style_start = Styles::green;
+    const Style style_stop = Styles::red;
+    const Style style_locked = Styles::dark_grey;
+    const Style style_power_low = Styles::yellow;
+    const Style style_power_med = Styles::orange;
+    const Style style_power_high = Styles::red;
 
     bool lock_{false};
     bool transmitting_{false};
@@ -150,7 +126,7 @@ class TransmitterView : public View {
         {10 * 8 - 4, 1 * 8},
     };
 
-    void on_tuning_frequency_changed(rf::Frequency f);
+    void on_target_frequency_changed(rf::Frequency f);
     void on_channel_bandwidth_changed(uint32_t channel_bandwidth);
     void on_tx_gain_changed(int32_t tx_gain);
     void on_tx_amp_changed(bool rf_amp);
@@ -168,21 +144,9 @@ class TransmitterView2 : public View {
     void paint(Painter& painter) override;
 
    private:
-    const Style style_power_low{
-        .font = font::fixed_8x16,
-        .background = Color::black(),
-        .foreground = Color::yellow(),
-    };
-    const Style style_power_med{
-        .font = font::fixed_8x16,
-        .background = Color::black(),
-        .foreground = Color::orange(),
-    };
-    const Style style_power_high{
-        .font = font::fixed_8x16,
-        .background = Color::black(),
-        .foreground = Color::red(),
-    };
+    const Style& style_power_low = Styles::yellow;
+    const Style& style_power_med = Styles::orange;
+    const Style& style_power_high = Styles::red;
 
     Text text_gain_amp{
         {0, 3 * 8, 5 * 8, 1 * 16},

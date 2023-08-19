@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2015 Jared Boone, ShareBrained Technology, Inc.
  * Copyright (C) 2016 Furrtek
+ * Copyright (C) 2023 gullradriel, Nilorea Studio Inc.
  *
  * This file is part of PortaPack.
  *
@@ -23,6 +24,7 @@
 #include "ui_settings.hpp"
 
 #include "ui_navigation.hpp"
+#include "ui_receiver.hpp"
 #include "ui_touch_calibration.hpp"
 
 #include "portapack_persistent_memory.hpp"
@@ -31,16 +33,27 @@ using namespace lpc43xx;
 
 #include "audio.hpp"
 #include "portapack.hpp"
-using portapack::receiver_model;
 using namespace portapack;
 
+#include "file.hpp"
+namespace fs = std::filesystem;
+
 #include "string_format.hpp"
-#include "ui_font_fixed_8x16.hpp"
+#include "ui_styles.hpp"
 #include "cpld_update.hpp"
 
-#include "freqman.hpp"
+namespace pmem = portapack::persistent_memory;
 
 namespace ui {
+
+/* Sends a UI refresh message to cause the status bar to redraw. */
+static void send_system_refresh() {
+    StatusRefreshMessage message{};
+    EventDispatcher::send_message(message);
+}
+
+/* SetDateTimeView ***************************************/
+
 SetDateTimeView::SetDateTimeView(
     NavigationView& nav) {
     button_save.on_select = [&nav, this](Button&) {
@@ -104,13 +117,15 @@ SetDateTimeModel SetDateTimeView::form_collect() {
         .second = static_cast<uint8_t>(field_second.value())};
 }
 
+/* SetRadioView ******************************************/
+
 SetRadioView::SetRadioView(
     NavigationView& nav) {
     button_cancel.on_select = [&nav](Button&) {
         nav.pop();
     };
 
-    const auto reference = portapack::clock_manager.get_reference();
+    const auto reference = clock_manager.get_reference();
 
     std::string source_name("---");
     switch (reference.source) {
@@ -128,9 +143,9 @@ SetRadioView::SetRadioView(
     value_source.set(source_name);
     value_source_frequency.set(to_string_dec_uint(reference.frequency / 1000000, 2) + "." + to_string_dec_uint((reference.frequency % 1000000) / 100, 4, '0') + " MHz");
 
-    label_source.set_style(&style_text);
-    value_source.set_style(&style_text);
-    value_source_frequency.set_style(&style_text);
+    label_source.set_style(&Styles::light_grey);
+    value_source.set_style(&Styles::light_grey);
+    value_source_frequency.set_style(&Styles::light_grey);
 
     add_children({
         &label_source,
@@ -155,20 +170,19 @@ SetRadioView::SetRadioView(
                   &button_cancel});
 
     SetFrequencyCorrectionModel model{
-        static_cast<int8_t>(portapack::persistent_memory::correction_ppb() / 1000), 0};
+        static_cast<int8_t>(pmem::correction_ppb() / 1000), 0};
 
     form_init(model);
 
-    check_clkout.set_value(portapack::persistent_memory::clkout_enabled());
+    check_clkout.set_value(pmem::clkout_enabled());
     check_clkout.on_select = [this](Checkbox&, bool v) {
         clock_manager.enable_clock_output(v);
-        portapack::persistent_memory::set_clkout_enabled(v);
-        StatusRefreshMessage message{};
-        EventDispatcher::send_message(message);
+        pmem::set_clkout_enabled(v);
+        send_system_refresh();
     };
 
-    field_clkout_freq.set_value(portapack::persistent_memory::clkout_freq());
-    value_freq_step.set_style(&style_text);
+    field_clkout_freq.set_value(pmem::clkout_freq());
+    value_freq_step.set_style(&Styles::light_grey);
 
     field_clkout_freq.on_select = [this](NumberField&) {
         freq_step_khz++;
@@ -192,18 +206,26 @@ SetRadioView::SetRadioView(
         field_clkout_freq.set_step(pow(10, freq_step_khz));
     };
 
-    check_bias.set_value(portapack::get_antenna_bias());
+    check_bias.set_value(get_antenna_bias());
     check_bias.on_select = [this](Checkbox&, bool v) {
-        portapack::set_antenna_bias(v);
-        StatusRefreshMessage message{};
-        EventDispatcher::send_message(message);
+        set_antenna_bias(v);
+
+        // Update the radio.
+        receiver_model.set_antenna_bias();
+        transmitter_model.set_antenna_bias();
+        // The models won't actually disable this if they are not 'enabled_'.
+        // Be extra sure this is turned off.
+        if (!v)
+            radio::set_antenna_bias(false);
+
+        send_system_refresh();
     };
 
     button_save.on_select = [this, &nav](Button&) {
         const auto model = this->form_collect();
-        portapack::persistent_memory::set_correction_ppb(model.ppm * 1000);
-        portapack::persistent_memory::set_clkout_freq(model.freq);
-        clock_manager.enable_clock_output(portapack::persistent_memory::clkout_enabled());
+        pmem::set_correction_ppb(model.ppm * 1000);
+        pmem::set_clkout_freq(model.freq);
+        clock_manager.enable_clock_output(pmem::clkout_enabled());
         nav.pop();
     };
 }
@@ -223,54 +245,86 @@ SetFrequencyCorrectionModel SetRadioView::form_collect() {
     };
 }
 
+/* SetUIView *********************************************/
+
 SetUIView::SetUIView(NavigationView& nav) {
     add_children({&checkbox_disable_touchscreen,
-                  &checkbox_speaker,
                   &checkbox_bloff,
                   &options_bloff,
                   &checkbox_showsplash,
                   &checkbox_showclock,
                   &options_clockformat,
                   &checkbox_guireturnflag,
+                  &labels,
+                  &toggle_camera,
+                  &toggle_sleep,
+                  &toggle_stealth,
+                  &toggle_converter,
+                  &toggle_bias_tee,
+                  &toggle_clock,
+                  &toggle_mute,
+                  &toggle_sd_card,
                   &button_save,
                   &button_cancel});
 
-    checkbox_disable_touchscreen.set_value(persistent_memory::disable_touchscreen());
-    checkbox_speaker.set_value(persistent_memory::config_speaker());
-    checkbox_showsplash.set_value(persistent_memory::config_splash());
-    checkbox_showclock.set_value(!persistent_memory::hide_clock());
-    checkbox_guireturnflag.set_value(persistent_memory::show_gui_return_icon());
+    // Display "Disable speaker" option only if AK4951 Codec which has separate speaker/headphone control
+    if (audio::speaker_disable_supported()) {
+        add_child(&toggle_speaker);
+    }
 
-    const auto backlight_config = persistent_memory::config_backlight_timer();
+    checkbox_disable_touchscreen.set_value(pmem::disable_touchscreen());
+    checkbox_showsplash.set_value(pmem::config_splash());
+    checkbox_showclock.set_value(!pmem::hide_clock());
+    checkbox_guireturnflag.set_value(pmem::show_gui_return_icon());
+
+    const auto backlight_config = pmem::config_backlight_timer();
     checkbox_bloff.set_value(backlight_config.timeout_enabled());
     options_bloff.set_by_value(backlight_config.timeout_enum());
 
-    if (persistent_memory::clock_with_date()) {
+    if (pmem::clock_with_date()) {
         options_clockformat.set_selected_index(1);
     } else {
         options_clockformat.set_selected_index(0);
     }
 
+    // NB: Invert so "active" == "not hidden"
+    toggle_camera.set_value(!pmem::ui_hide_camera());
+    toggle_sleep.set_value(!pmem::ui_hide_sleep());
+    toggle_stealth.set_value(!pmem::ui_hide_stealth());
+    toggle_converter.set_value(!pmem::ui_hide_converter());
+    toggle_bias_tee.set_value(!pmem::ui_hide_bias_tee());
+    toggle_clock.set_value(!pmem::ui_hide_clock());
+    toggle_speaker.set_value(!pmem::ui_hide_speaker());
+    toggle_mute.set_value(!pmem::ui_hide_mute());
+    toggle_sd_card.set_value(!pmem::ui_hide_sd_card());
+
     button_save.on_select = [&nav, this](Button&) {
-        persistent_memory::set_config_backlight_timer({(persistent_memory::backlight_timeout_t)options_bloff.selected_index_value(),
-                                                       checkbox_bloff.value()});
+        pmem::set_config_backlight_timer({(pmem::backlight_timeout_t)options_bloff.selected_index_value(),
+                                          checkbox_bloff.value()});
 
         if (checkbox_showclock.value()) {
             if (options_clockformat.selected_index() == 1)
-                persistent_memory::set_clock_with_date(true);
+                pmem::set_clock_with_date(true);
             else
-                persistent_memory::set_clock_with_date(false);
+                pmem::set_clock_with_date(false);
         }
 
-        if (checkbox_speaker.value()) audio::output::speaker_mute();      // Just mute audio if speaker is disabled
-        persistent_memory::set_config_speaker(checkbox_speaker.value());  // Store Speaker status
-        StatusRefreshMessage message{};                                   // Refresh status bar with/out speaker
-        EventDispatcher::send_message(message);
+        pmem::set_config_splash(checkbox_showsplash.value());
+        pmem::set_clock_hidden(!checkbox_showclock.value());
+        pmem::set_gui_return_icon(checkbox_guireturnflag.value());
+        pmem::set_disable_touchscreen(checkbox_disable_touchscreen.value());
 
-        persistent_memory::set_config_splash(checkbox_showsplash.value());
-        persistent_memory::set_clock_hidden(!checkbox_showclock.value());
-        persistent_memory::set_gui_return_icon(checkbox_guireturnflag.value());
-        persistent_memory::set_disable_touchscreen(checkbox_disable_touchscreen.value());
+        pmem::set_ui_hide_camera(!toggle_camera.value());
+        pmem::set_ui_hide_sleep(!toggle_sleep.value());
+        pmem::set_ui_hide_stealth(!toggle_stealth.value());
+        pmem::set_ui_hide_converter(!toggle_converter.value());
+        pmem::set_ui_hide_bias_tee(!toggle_bias_tee.value());
+        pmem::set_ui_hide_clock(!toggle_clock.value());
+        pmem::set_ui_hide_speaker(!toggle_speaker.value());
+        pmem::set_ui_hide_mute(!toggle_mute.value());
+        pmem::set_ui_hide_sd_card(!toggle_sd_card.value());
+        send_system_refresh();
+
         nav.pop();
     };
     button_cancel.on_select = [&nav, this](Button&) {
@@ -282,21 +336,20 @@ void SetUIView::focus() {
     button_save.focus();
 }
 
-// ---------------------------------------------------------
-// Appl. Settings
-// ---------------------------------------------------------
+/* SetAppSettingsView ************************************/
+
 SetAppSettingsView::SetAppSettingsView(NavigationView& nav) {
     add_children({&checkbox_load_app_settings,
                   &checkbox_save_app_settings,
                   &button_save,
                   &button_cancel});
 
-    checkbox_load_app_settings.set_value(persistent_memory::load_app_settings());
-    checkbox_save_app_settings.set_value(persistent_memory::save_app_settings());
+    checkbox_load_app_settings.set_value(pmem::load_app_settings());
+    checkbox_save_app_settings.set_value(pmem::save_app_settings());
 
     button_save.on_select = [&nav, this](Button&) {
-        persistent_memory::set_load_app_settings(checkbox_load_app_settings.value());
-        persistent_memory::set_save_app_settings(checkbox_save_app_settings.value());
+        pmem::set_load_app_settings(checkbox_load_app_settings.value());
+        pmem::set_save_app_settings(checkbox_save_app_settings.value());
         nav.pop();
     };
     button_cancel.on_select = [&nav, this](Button&) {
@@ -308,9 +361,8 @@ void SetAppSettingsView::focus() {
     button_save.focus();
 }
 
-// ---------------------------------------------------------
-// Converter Settings
-// ---------------------------------------------------------
+/* SetConverterSettingsView ******************************/
+
 SetConverterSettingsView::SetConverterSettingsView(NavigationView& nav) {
     add_children({&check_show_converter,
                   &check_converter,
@@ -318,48 +370,45 @@ SetConverterSettingsView::SetConverterSettingsView(NavigationView& nav) {
                   &button_converter_freq,
                   &button_return});
 
-    check_show_converter.set_value(!portapack::persistent_memory::config_hide_converter());
+    check_show_converter.set_value(!pmem::ui_hide_converter());
     check_show_converter.on_select = [this](Checkbox&, bool v) {
-        portapack::persistent_memory::set_config_hide_converter(!v);
+        pmem::set_ui_hide_converter(!v);
         if (!v) {
             check_converter.set_value(false);
         }
-        // Retune to take converter change in account
-        receiver_model.set_tuning_frequency(portapack::persistent_memory::tuned_frequency());
+        // Retune to take converter change in account.
+        receiver_model.set_target_frequency(receiver_model.target_frequency());
         // Refresh status bar with/out converter
-        StatusRefreshMessage message{};
-        EventDispatcher::send_message(message);
+        send_system_refresh();
     };
 
-    check_converter.set_value(portapack::persistent_memory::config_converter());
+    check_converter.set_value(pmem::config_converter());
     check_converter.on_select = [this](Checkbox&, bool v) {
         if (v) {
             check_show_converter.set_value(true);
-            portapack::persistent_memory::set_config_hide_converter(false);
+            pmem::set_ui_hide_converter(false);
         }
-        portapack::persistent_memory::set_config_converter(v);
+        pmem::set_config_converter(v);
         // Retune to take converter change in account
-        receiver_model.set_tuning_frequency(portapack::persistent_memory::tuned_frequency());
+        receiver_model.set_target_frequency(receiver_model.target_frequency());
         // Refresh status bar with/out converter
-        StatusRefreshMessage message{};
-        EventDispatcher::send_message(message);
+        send_system_refresh();
     };
 
-    converter_mode.set_by_value(portapack::persistent_memory::config_updown_converter());
+    converter_mode.set_by_value(pmem::config_updown_converter());
     converter_mode.on_change = [this](size_t, OptionsField::value_t v) {
-        portapack::persistent_memory::set_config_updown_converter(v);
+        pmem::set_config_updown_converter(v);
         // Refresh status bar with icon up or down
-        StatusRefreshMessage message{};
-        EventDispatcher::send_message(message);
+        send_system_refresh();
     };
 
-    button_converter_freq.set_text(to_string_short_freq(portapack::persistent_memory::config_converter_freq()) + "MHz");
+    button_converter_freq.set_text(to_string_short_freq(pmem::config_converter_freq()) + "MHz");
     button_converter_freq.on_select = [this, &nav](Button& button) {
-        auto new_view = nav.push<FrequencyKeypadView>(portapack::persistent_memory::config_converter_freq());
+        auto new_view = nav.push<FrequencyKeypadView>(pmem::config_converter_freq());
         new_view->on_changed = [this, &button](rf::Frequency f) {
-            portapack::persistent_memory::set_config_converter_freq(f);
+            pmem::set_config_converter_freq(f);
             // Retune to take converter change in account
-            receiver_model.set_tuning_frequency(portapack::persistent_memory::tuned_frequency());
+            receiver_model.set_target_frequency(receiver_model.target_frequency());
             button_converter_freq.set_text("<" + to_string_short_freq(f) + " MHz>");
         };
     };
@@ -373,9 +422,8 @@ void SetConverterSettingsView::focus() {
     button_return.focus();
 }
 
-// ---------------------------------------------------------
-// Frequency Correction Settings
-// ---------------------------------------------------------
+/* SetFrequencyCorrectionView ****************************/
+
 SetFrequencyCorrectionView::SetFrequencyCorrectionView(NavigationView& nav) {
     add_children({&text_freqCorrection_about,
                   &frequency_rx_correction_mode,
@@ -384,38 +432,38 @@ SetFrequencyCorrectionView::SetFrequencyCorrectionView(NavigationView& nav) {
                   &button_freq_tx_correction,
                   &button_return});
 
-    frequency_rx_correction_mode.set_by_value(portapack::persistent_memory::config_freq_rx_correction_updown());
+    frequency_rx_correction_mode.set_by_value(pmem::config_freq_rx_correction_updown());
     frequency_rx_correction_mode.on_change = [this](size_t, OptionsField::value_t v) {
-        portapack::persistent_memory::set_freq_rx_correction_updown(v);
+        pmem::set_freq_rx_correction_updown(v);
     };
 
-    frequency_tx_correction_mode.set_by_value(portapack::persistent_memory::config_freq_rx_correction_updown());
+    frequency_tx_correction_mode.set_by_value(pmem::config_freq_rx_correction_updown());
     frequency_tx_correction_mode.on_change = [this](size_t, OptionsField::value_t v) {
-        portapack::persistent_memory::set_freq_tx_correction_updown(v);
+        pmem::set_freq_tx_correction_updown(v);
     };
 
-    button_freq_rx_correction.set_text(to_string_short_freq(portapack::persistent_memory::config_freq_rx_correction()) + "MHz (Rx)");
+    button_freq_rx_correction.set_text(to_string_short_freq(pmem::config_freq_rx_correction()) + "MHz (Rx)");
     button_freq_rx_correction.on_select = [this, &nav](Button& button) {
-        auto new_view = nav.push<FrequencyKeypadView>(portapack::persistent_memory::config_converter_freq());
+        auto new_view = nav.push<FrequencyKeypadView>(pmem::config_converter_freq());
         new_view->on_changed = [this, &button](rf::Frequency f) {
             if (f >= MAX_FREQ_CORRECTION)
                 f = MAX_FREQ_CORRECTION;
-            portapack::persistent_memory::set_config_freq_rx_correction(f);
+            pmem::set_config_freq_rx_correction(f);
             // Retune to take converter change in account
-            receiver_model.set_tuning_frequency(portapack::persistent_memory::tuned_frequency());
+            receiver_model.set_target_frequency(receiver_model.target_frequency());
             button_freq_rx_correction.set_text("<" + to_string_short_freq(f) + " MHz>");
         };
     };
 
-    button_freq_tx_correction.set_text(to_string_short_freq(portapack::persistent_memory::config_freq_tx_correction()) + "MHz (Tx)");
+    button_freq_tx_correction.set_text(to_string_short_freq(pmem::config_freq_tx_correction()) + "MHz (Tx)");
     button_freq_tx_correction.on_select = [this, &nav](Button& button) {
-        auto new_view = nav.push<FrequencyKeypadView>(portapack::persistent_memory::config_converter_freq());
+        auto new_view = nav.push<FrequencyKeypadView>(pmem::config_converter_freq());
         new_view->on_changed = [this, &button](rf::Frequency f) {
             if (f >= MAX_FREQ_CORRECTION)
                 f = MAX_FREQ_CORRECTION;
-            portapack::persistent_memory::set_config_freq_tx_correction(f);
+            pmem::set_config_freq_tx_correction(f);
             // Retune to take converter change in account
-            receiver_model.set_tuning_frequency(portapack::persistent_memory::tuned_frequency());
+            receiver_model.set_target_frequency(receiver_model.target_frequency());
             button_freq_tx_correction.set_text("<" + to_string_short_freq(f) + " MHz>");
         };
     };
@@ -429,72 +477,54 @@ void SetFrequencyCorrectionView::focus() {
     button_return.focus();
 }
 
-// ---------------------------------------------------------
-// Persistent Memory Settings
-// ---------------------------------------------------------
+/* SetPersistentMemoryView *******************************/
+
 SetPersistentMemoryView::SetPersistentMemoryView(NavigationView& nav) {
     add_children({&text_pmem_about,
                   &text_pmem_informations,
                   &text_pmem_status,
-                  &check_load_mem_at_startup,
+                  &check_use_sdcard_for_pmem,
                   &button_save_mem_to_file,
                   &button_load_mem_from_file,
                   &button_load_mem_defaults,
                   &button_return});
 
-    bool load_mem_at_startup = false;
-    File pmem_flag_file_handle;
-
-    std::string folder = "SETTINGS";
-    make_new_directory(folder);
-
-    std::string pmem_flag_file = "/SETTINGS/PMEM_FILEFLAG";
-    auto result = pmem_flag_file_handle.open(pmem_flag_file);
-    if (!result.is_valid()) {
-        load_mem_at_startup = true;
-    }
-    check_load_mem_at_startup.set_value(load_mem_at_startup);
-    check_load_mem_at_startup.on_select = [this](Checkbox&, bool v) {
+    check_use_sdcard_for_pmem.set_value(pmem::should_use_sdcard_for_pmem());
+    check_use_sdcard_for_pmem.on_select = [this](Checkbox&, bool v) {
         File pmem_flag_file_handle;
-        std::string pmem_flag_file = "/SETTINGS/PMEM_FILEFLAG";
         if (v) {
-            auto result = pmem_flag_file_handle.open(pmem_flag_file);
-            if (result.is_valid()) {
-                auto result = pmem_flag_file_handle.create(pmem_flag_file);  // third: create if it is not there
-                if (!result.is_valid()) {
-                    text_pmem_status.set("pmem flag file created");
-                } else {
-                    text_pmem_status.set("!err. creating pmem flagfile!");
-                }
-            } else {
+            if (fs::file_exists(PMEM_FILEFLAG)) {
                 text_pmem_status.set("pmem flag already present");
+            } else {
+                auto error = pmem_flag_file_handle.create(PMEM_FILEFLAG);
+                if (error)
+                    text_pmem_status.set("!err. creating pmem flagfile!");
+                else
+                    text_pmem_status.set("pmem flag file created");
             }
         } else {
-            auto result = delete_file(pmem_flag_file);
-            if (result.code() != FR_OK) {
+            auto result = delete_file(PMEM_FILEFLAG);
+            if (result.code() != FR_OK)
                 text_pmem_status.set("!err. deleting pmem flagfile!");
-            } else {
+            else
                 text_pmem_status.set("pmem flag file deleted");
-            }
         }
     };
 
     button_save_mem_to_file.on_select = [&nav, this](Button&) {
-        if (!portapack::persistent_memory::save_persistent_settings_to_file("SETTINGS/pmem_settings")) {
+        if (!pmem::save_persistent_settings_to_file())
             text_pmem_status.set("!problem saving settings!");
-        } else {
+        else
             text_pmem_status.set("settings saved");
-        }
     };
 
     button_load_mem_from_file.on_select = [&nav, this](Button&) {
-        if (!portapack::persistent_memory::load_persistent_settings_from_file("SETTINGS/pmem_settings")) {
+        if (!pmem::load_persistent_settings_from_file()) {
             text_pmem_status.set("!problem loading settings!");
         } else {
             text_pmem_status.set("settings loaded");
             // Refresh status bar with icon up or down
-            StatusRefreshMessage message{};
-            EventDispatcher::send_message(message);
+            send_system_refresh();
         }
     };
 
@@ -505,7 +535,7 @@ SetPersistentMemoryView::SetPersistentMemoryView(NavigationView& nav) {
             YESNO,
             [this](bool choice) {
                 if (choice) {
-                    portapack::persistent_memory::cache::defaults();
+                    pmem::cache::defaults();
                 }
             });
     };
@@ -519,19 +549,19 @@ void SetPersistentMemoryView::focus() {
     button_return.focus();
 }
 
-//
-// Audio settings
-//
+/* SetAudioView ******************************************/
+
 SetAudioView::SetAudioView(NavigationView& nav) {
     add_children({&labels,
                   &field_tone_mix,
                   &button_save,
                   &button_cancel});
 
-    field_tone_mix.set_value(persistent_memory::tone_mix());
+    field_tone_mix.set_value(pmem::tone_mix());
 
     button_save.on_select = [&nav, this](Button&) {
-        persistent_memory::set_tone_mix(field_tone_mix.value());
+        pmem::set_tone_mix(field_tone_mix.value());
+        audio::output::update_audio_mute();
         nav.pop();
     };
 
@@ -544,15 +574,17 @@ void SetAudioView::focus() {
     button_save.focus();
 }
 
+/* SetQRCodeView *****************************************/
+
 SetQRCodeView::SetQRCodeView(NavigationView& nav) {
     add_children({&checkbox_bigger_qr,
                   &button_save,
                   &button_cancel});
 
-    checkbox_bigger_qr.set_value(persistent_memory::show_bigger_qr_code());
+    checkbox_bigger_qr.set_value(pmem::show_bigger_qr_code());
 
     button_save.on_select = [&nav, this](Button&) {
-        persistent_memory::set_show_bigger_qr_code(checkbox_bigger_qr.value());
+        pmem::set_show_bigger_qr_code(checkbox_bigger_qr.value());
         nav.pop();
     };
 
@@ -565,11 +597,34 @@ void SetQRCodeView::focus() {
     button_save.focus();
 }
 
-// ---------------------------------------------------------
-// Settings main menu
-// ---------------------------------------------------------
+/* SetEncoderDialView ************************************/
+
+SetEncoderDialView::SetEncoderDialView(NavigationView& nav) {
+    add_children({&labels,
+                  &field_encoder_dial_sensitivity,
+                  &button_save,
+                  &button_cancel});
+
+    field_encoder_dial_sensitivity.set_by_value(pmem::config_encoder_dial_sensitivity());
+
+    button_save.on_select = [&nav, this](Button&) {
+        pmem::set_encoder_dial_sensitivity(field_encoder_dial_sensitivity.selected_index_value());
+        nav.pop();
+    };
+
+    button_cancel.on_select = [&nav, this](Button&) {
+        nav.pop();
+    };
+}
+
+void SetEncoderDialView::focus() {
+    button_save.focus();
+}
+
+/* SettingsMenuView **************************************/
+
 SettingsMenuView::SettingsMenuView(NavigationView& nav) {
-    if (portapack::persistent_memory::show_gui_return_icon()) {
+    if (pmem::show_gui_return_icon()) {
         add_items({{"..", ui::Color::light_grey(), &bitmap_icon_previous, [&nav]() { nav.pop(); }}});
     }
     add_items({
@@ -583,6 +638,7 @@ SettingsMenuView::SettingsMenuView(NavigationView& nav) {
         {"FreqCorrection", ui::Color::dark_cyan(), &bitmap_icon_options_radio, [&nav]() { nav.push<SetFrequencyCorrectionView>(); }},
         {"QR Code", ui::Color::dark_cyan(), &bitmap_icon_qr_code, [&nav]() { nav.push<SetQRCodeView>(); }},
         {"P.Memory Mgmt", ui::Color::dark_cyan(), &bitmap_icon_memory, [&nav]() { nav.push<SetPersistentMemoryView>(); }},
+        {"Encoder Dial", ui::Color::dark_cyan(), &bitmap_icon_setup, [&nav]() { nav.push<SetEncoderDialView>(); }},
     });
     set_max_rows(2);  // allow wider buttons
 }

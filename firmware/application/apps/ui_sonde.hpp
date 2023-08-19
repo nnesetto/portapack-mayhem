@@ -25,6 +25,7 @@
 
 #include "ui_navigation.hpp"
 #include "ui_receiver.hpp"
+#include "ui_freq_field.hpp"
 #include "ui_rssi.hpp"
 #include "ui_qrcode.hpp"
 #include "ui_geomap.hpp"
@@ -35,6 +36,7 @@
 
 #include "sonde_packet.hpp"
 #include "app_settings.hpp"
+#include "radio_state.hpp"
 #include <cstddef>
 #include <string>
 
@@ -54,8 +56,7 @@ namespace ui {
 
 class SondeView : public View {
    public:
-    static constexpr uint32_t sampling_rate = 2457600;
-    static constexpr uint32_t baseband_bandwidth = 1750000;
+    static constexpr uint32_t initial_target_frequency = 402700000;
 
     SondeView(NavigationView& nav);
     ~SondeView();
@@ -65,6 +66,14 @@ class SondeView : public View {
     std::string title() const override { return "Radiosnd RX"; };
 
    private:
+    NavigationView& nav_;
+    RxRadioState radio_state_{
+        1750000 /* bandwidth */,
+        2457600 /* sampling rate */
+    };
+    app_settings::SettingsManager settings_{
+        "rx_sonde", app_settings::Mode::RX};
+
     std::unique_ptr<SondeLogger> logger{};
     uint32_t target_frequency_{402700000};
     bool logging{false};
@@ -72,9 +81,6 @@ class SondeView : public View {
     bool beep{false};
 
     char geo_uri[32] = {};
-    // app save settings
-    std::app_settings settings{};
-    std::app_settings::AppSettings app_settings{};
 
     sonde::GPS_data gps_info{};
     sonde::temp_humid temp_humid_info{};
@@ -92,9 +98,9 @@ class SondeView : public View {
         {{4 * 8, 7 * 16}, "Temp:", Color::light_grey()},
         {{0 * 8, 8 * 16}, "Humidity:", Color::light_grey()}};
 
-    FrequencyField field_frequency{
+    RxFrequencyField field_frequency{
         {0 * 8, 0 * 8},
-    };
+        nav_};
 
     RFAmpField field_rf_amp{
         {13 * 8, 0 * 16}};
@@ -106,16 +112,10 @@ class SondeView : public View {
         {18 * 8, 0 * 16}};
 
     RSSI rssi{
-        {21 * 8, 0, 6 * 8, 4},
-    };
+        {21 * 8, 0, 6 * 8, 4}};
 
-    NumberField field_volume{
-        {28 * 8, 0 * 16},
-        2,
-        {0, 99},
-        1,
-        ' ',
-    };
+    AudioVolumeField field_volume{
+        {28 * 8, 0 * 16}};
 
     Checkbox check_beep{
         {22 * 8, 6 * 16},
@@ -181,11 +181,7 @@ class SondeView : public View {
         }};
 
     void on_packet(const sonde::Packet& packet);
-    void on_headphone_volume_changed(int32_t v);
     char* float_to_char(float x, char* p);
-    void set_target_frequency(const uint32_t new_value);
-
-    uint32_t tuning_frequency() const;
 };
 
 } /* namespace ui */

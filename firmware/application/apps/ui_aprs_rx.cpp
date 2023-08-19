@@ -73,12 +73,8 @@ void APRSRxView::focus() {
     options_region.focus();
 }
 
-void APRSRxView::update_freq(rf::Frequency f) {
-    receiver_model.set_tuning_frequency(f);
-}
-
 APRSRxView::APRSRxView(NavigationView& nav, Rect parent_rect)
-    : View(parent_rect) {
+    : View(parent_rect), nav_{nav} {
     baseband::run_image(portapack::spi_flash::image_tag_aprs_rx);
 
     add_children({&rssi,
@@ -86,18 +82,11 @@ APRSRxView::APRSRxView(NavigationView& nav, Rect parent_rect)
                   &field_rf_amp,
                   &field_lna,
                   &field_vga,
+                  &field_volume,
                   &options_region,
                   &field_frequency,
                   &record_view,
                   &console});
-
-    // load app settings
-    auto rc = settings.load("rx_aprs", &app_settings);
-    if (rc == SETTINGS_OK) {
-        field_lna.set_value(app_settings.lna);
-        field_vga.set_value(app_settings.vga);
-        field_rf_amp.set_value(app_settings.rx_amp);
-    }
 
     // DEBUG
     record_view.on_error = [&nav](std::string message) {
@@ -118,19 +107,7 @@ APRSRxView::APRSRxView(NavigationView& nav, Rect parent_rect)
         }
     };
 
-    field_frequency.set_value(receiver_model.tuning_frequency());
     field_frequency.set_step(100);
-    field_frequency.on_change = [this](rf::Frequency f) {
-        update_freq(f);
-    };
-    field_frequency.on_edit = [this, &nav]() {
-        auto new_view = nav.push<FrequencyKeypadView>(receiver_model.tuning_frequency());
-        new_view->on_changed = [this](rf::Frequency f) {
-            update_freq(f);
-            field_frequency.set_value(f);
-        };
-    };
-
     options_region.set_selected_index(0, true);
 
     logger = std::make_unique<APRSLogger>();
@@ -142,9 +119,6 @@ APRSRxView::APRSRxView(NavigationView& nav, Rect parent_rect)
     audio::set_rate(audio::Rate::Hz_24000);
     audio::output::start();
 
-    receiver_model.set_sampling_rate(3072000);
-    receiver_model.set_baseband_bandwidth(1750000);
-    receiver_model.set_modulation(ReceiverModel::Mode::NarrowbandFMAudio);
     receiver_model.enable();
 }
 
@@ -210,9 +184,6 @@ void APRSRxView::on_show() {
 }
 
 APRSRxView::~APRSRxView() {
-    // save app settings
-    settings.save("rx_aprs", &app_settings);
-
     audio::output::stop();
     receiver_model.disable();
     baseband::shutdown();

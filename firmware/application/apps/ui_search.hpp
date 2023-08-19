@@ -21,11 +21,12 @@
  */
 
 #include "receiver_model.hpp"
+#include "radio_state.hpp"
 
 #include "spectrum_color_lut.hpp"
 
 #include "ui_receiver.hpp"
-#include "ui_font_fixed_8x16.hpp"
+#include "ui_styles.hpp"
 #include "recent_entries.hpp"
 
 namespace ui {
@@ -89,19 +90,10 @@ class SearchView : public View {
 
    private:
     NavigationView& nav_;
-
-    const Style style_grey{
-        // For informations and lost signal
-        .font = font::fixed_8x16,
-        .background = Color::black(),
-        .foreground = Color::grey(),
-    };
-
-    const Style style_locked{
-        .font = font::fixed_8x16,
-        .background = Color::black(),
-        .foreground = Color::green(),
-    };
+    RxRadioState radio_state_{
+        2500000 /* bandwidth */,
+        SEARCH_SLICE_WIDTH /* sampling rate */,
+        ReceiverModel::Mode::SpectrumAnalysis};
 
     struct slice_t {
         rf::Frequency center_frequency;
@@ -155,11 +147,9 @@ class SearchView : public View {
         {{26 * 8, 25 * 8}, "MHz", Color::light_grey()}};
 
     FrequencyField field_frequency_min{
-        {1 * 8, 1 * 16},
-    };
+        {1 * 8, 1 * 16}};
     FrequencyField field_frequency_max{
-        {11 * 8, 1 * 16},
-    };
+        {11 * 8, 1 * 16}};
     LNAGainField field_lna{
         {22 * 8, 1 * 16}};
     VGAGainField field_vga{

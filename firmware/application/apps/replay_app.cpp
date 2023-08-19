@@ -26,12 +26,16 @@
 
 #include "ui_fileman.hpp"
 #include "io_file.hpp"
-#include "cpld_update.hpp"
+#include "io_convert.hpp"
+
 #include "baseband_api.hpp"
+#include "metadata_file.hpp"
 #include "portapack.hpp"
 #include "portapack_persistent_memory.hpp"
+#include "utility.hpp"
 
 using namespace portapack;
+namespace fs = std::filesystem;
 
 namespace ui {
 
@@ -39,51 +43,42 @@ void ReplayAppView::set_ready() {
     ready_signal = true;
 }
 
-void ReplayAppView::on_file_changed(std::filesystem::path new_file_path) {
-    File data_file, info_file;
-    char file_data[257];
+void ReplayAppView::on_file_changed(const fs::path& new_file_path) {
+    file_path = fs::path(u"/") + new_file_path;
+    File::Size file_size{};
 
-    // Get file size
-    auto data_open_error = data_file.open("/" + new_file_path.string());
-    if (data_open_error.is_valid()) {
-        file_error();
-        return;
-    }
-
-    file_path = new_file_path;
-
-    // Get original record frequency if available
-    std::filesystem::path info_file_path = file_path;
-    info_file_path.replace_extension(u".TXT");
-
-    sample_rate = 500000;
-
-    auto info_open_error = info_file.open("/" + info_file_path.string());
-    if (!info_open_error.is_valid()) {
-        memset(file_data, 0, 257);
-        auto read_size = info_file.read(file_data, 256);
-        if (!read_size.is_error()) {
-            auto pos1 = strstr(file_data, "center_frequency=");
-            if (pos1) {
-                pos1 += 17;
-                field_frequency.set_value(strtoll(pos1, nullptr, 10));
-            }
-
-            auto pos2 = strstr(file_data, "sample_rate=");
-            if (pos2) {
-                pos2 += 12;
-                sample_rate = strtoll(pos2, nullptr, 10);
-            }
+    {  // Get the size of the data file.
+        File data_file;
+        auto error = data_file.open(file_path);
+        if (error) {
+            file_error();
+            return;
         }
+
+        file_size = data_file.size();
     }
 
+    // Get original record frequency if available.
+    auto metadata_path = get_metadata_path(file_path);
+    auto metadata = read_metadata_file(metadata_path);
+
+    if (metadata) {
+        field_frequency.set_value(metadata->center_frequency);
+        sample_rate = metadata->sample_rate;
+    } else {
+        // TODO: This is interesting because it implies that the
+        // The capture will just be replayed at the freq set on the
+        // FrequencyField. Is that an intentional behavior?
+        sample_rate = 500000;
+    }
+
+    // UI Fixup.
     text_sample_rate.set(unit_auto_scale(sample_rate, 3, 0) + "Hz");
-
-    auto file_size = data_file.size();
-    auto duration = (file_size * 1000) / (2 * 2 * sample_rate);
-
     progressbar.set_max(file_size);
-    text_filename.set(file_path.filename().string().substr(0, 12));
+    text_filename.set(truncate(file_path.filename().string(), 12));
+
+    uint8_t sample_size = capture_file_sample_size(current()->path);
+    auto duration = ms_duration(file_size, sample_rate, sample_size);
     text_duration.set(to_string_time_ms(duration));
 
     button_play.focus();
@@ -118,7 +113,7 @@ void ReplayAppView::start() {
 
     std::unique_ptr<stream::Reader> reader;
 
-    auto p = std::make_unique<FileReader>();
+    auto p = std::make_unique<FileConvertReader>();
     auto open_error = p->open(file_path);
     if (open_error.is_valid()) {
         file_error();
@@ -129,7 +124,7 @@ void ReplayAppView::start() {
 
     if (reader) {
         button_play.set_bitmap(&bitmap_stop);
-        baseband::set_sample_rate(sample_rate * 8);
+        baseband::set_sample_rate(sample_rate, OversampleRate::x8);
 
         replay_thread = std::make_unique<ReplayThread>(
             std::move(reader),
@@ -141,18 +136,9 @@ void ReplayAppView::start() {
             });
     }
 
-    // Enable Bias Tee if selected
-    radio::set_antenna_bias(portapack::get_antenna_bias());
-
-    rf_amp = (transmitter_model.rf_amp());  // recover rf_amp settings applied from ui_transmiter.cpp
-
-    radio::enable({receiver_model.tuning_frequency(),
-                   sample_rate * 8,
-                   baseband_bandwidth,
-                   rf::Direction::Transmit,
-                   rf_amp,  // previous code line : "receiver_model.rf_amp()," was passing the same rf_amp of all Receiver Apps
-                   static_cast<int8_t>(receiver_model.lna()),
-                   static_cast<int8_t>(receiver_model.vga())});
+    transmitter_model.set_sampling_rate(sample_rate * toUType(OversampleRate::x8));
+    transmitter_model.set_baseband_bandwidth(baseband_bandwidth);
+    transmitter_model.enable();
 
     if (portapack::persistent_memory::stealth_mode()) {
         DisplaySleepMessage message;
@@ -167,8 +153,7 @@ void ReplayAppView::stop(const bool do_loop) {
     if (do_loop && check_loop.value()) {
         start();
     } else {
-        radio::set_antenna_bias(false);  // Turn off Bias Tee
-        radio::disable();
+        transmitter_model.disable();
         button_play.set_bitmap(&bitmap_play);
     }
 
@@ -198,48 +183,30 @@ ReplayAppView::ReplayAppView(
         &text_duration,
         &progressbar,
         &field_frequency,
-        &tx_view,  // now it handles previous rfgain , rfamp.
+        &tx_view,  // now it handles previous rfgain, rfamp.
         &check_loop,
         &button_play,
         &waterfall,
     });
-
-    field_frequency.set_value(target_frequency());
-    field_frequency.set_step(receiver_model.frequency_step());
-    field_frequency.on_change = [this](rf::Frequency f) {
-        this->on_target_frequency_changed(f);
-    };
-    field_frequency.on_edit = [this, &nav]() {
-        // TODO: Provide separate modal method/scheme?
-        auto new_view = nav.push<FrequencyKeypadView>(this->target_frequency());
-        new_view->on_changed = [this](rf::Frequency f) {
-            this->on_target_frequency_changed(f);
-            this->field_frequency.set_value(f);
-        };
-    };
-
-    field_frequency.set_step(5000);
 
     button_play.on_select = [this](ImageButton&) {
         this->toggle();
     };
 
     button_open.on_select = [this, &nav](Button&) {
-        auto open_view = nav.push<FileLoadView>(".C16");
-        open_view->on_changed = [this](std::filesystem::path new_file_path) {
+        auto open_view = nav.push<FileLoadView>(".C*");
+        open_view->on_changed = [this](fs::path new_file_path) {
             on_file_changed(new_file_path);
         };
     };
 }
 
 ReplayAppView::~ReplayAppView() {
-    radio::disable();
+    transmitter_model.disable();
 
     display.fill_rectangle({0, 0, 240, 320}, Color::black());  // Solving sometimes visible bottom waterfall artifacts, clearing all LCD  pixels.
     chThdSleepMilliseconds(40);                                // (that happened sometimes if we interrupt the waterfall play at the beggining of the play  around 25% and exit )
-    hackrf::cpld::load_sram_no_verify();                       // to leave all  RX reception ok, without "ghost interference signal problem" at the exit .
-
-    baseband::shutdown();  // better this function at the end, after load_sram(). If not , sometimes produced hang up (now not , it is ok).
+    baseband::shutdown();
 }
 
 void ReplayAppView::on_hide() {
@@ -255,19 +222,6 @@ void ReplayAppView::set_parent_rect(const Rect new_parent_rect) {
 
     const ui::Rect waterfall_rect{0, header_height, new_parent_rect.width(), new_parent_rect.height() - header_height};
     waterfall.set_parent_rect(waterfall_rect);
-}
-
-void ReplayAppView::on_target_frequency_changed(rf::Frequency f) {
-    set_target_frequency(f);
-}
-
-void ReplayAppView::set_target_frequency(const rf::Frequency new_value) {
-    persistent_memory::set_tuned_frequency(new_value);
-    ;
-}
-
-rf::Frequency ReplayAppView::target_frequency() const {
-    return persistent_memory::tuned_frequency();
 }
 
 } /* namespace ui */

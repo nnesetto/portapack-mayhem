@@ -104,12 +104,15 @@ class FrequencyScale : public Widget {
     void draw_filter_ranges(Painter& painter, const Rect r);
 };
 
-class WaterfallView : public Widget {
+/* NB: These visualizations rely on having a baseband image running.
+ * If the baseband is shutdown or otherwise not running when interacting
+ * with these, they will almost certainly hang the device. */
+
+class WaterfallWidget : public Widget {
    public:
     void on_show() override;
     void on_hide() override;
-
-    void paint(Painter& painter) override;
+    void paint(Painter&) override {}
 
     void on_channel_spectrum(const ChannelSpectrum& spectrum);
 
@@ -117,25 +120,26 @@ class WaterfallView : public Widget {
     void clear();
 };
 
-class WaterfallWidget : public View {
+class WaterfallView : public View {
    public:
     std::function<void(int32_t offset)> on_select{};
 
-    WaterfallWidget(const bool cursor = false);
+    WaterfallView(const bool cursor = false);
 
-    WaterfallWidget(const WaterfallWidget&) = delete;
-    WaterfallWidget(WaterfallWidget&&) = delete;
-    WaterfallWidget& operator=(const WaterfallWidget&) = delete;
-    WaterfallWidget& operator=(WaterfallWidget&&) = delete;
+    WaterfallView(const WaterfallView&) = delete;
+    WaterfallView(WaterfallView&&) = delete;
+    WaterfallView& operator=(const WaterfallView&) = delete;
+    WaterfallView& operator=(WaterfallView&&) = delete;
 
+    // TODO: remove these, use start/stop directly instead.
     void on_show() override;
     void on_hide() override;
 
+    void start();
+    void stop();
+
     void set_parent_rect(const Rect new_parent_rect) override;
-
     void show_audio_spectrum_view(const bool show);
-
-    void paint(Painter& painter) override;
 
    private:
     void update_widgets_rect();
@@ -144,8 +148,9 @@ class WaterfallWidget : public View {
     static constexpr Dim audio_spectrum_height = 16 * 2 + 20;
     static constexpr Dim scale_height = 20;
 
-    WaterfallView waterfall_view{};
+    WaterfallWidget waterfall_widget{};
     FrequencyScale frequency_scale{};
+    bool running_{false};
 
     ChannelSpectrumFIFO* channel_fifo{nullptr};
     AudioSpectrum* audio_spectrum_data{nullptr};
@@ -191,6 +196,10 @@ class WaterfallWidget : public View {
 };
 
 } /* namespace spectrum */
+
+/* Calculates the best anti_alias_baseband_bandwidth_filter for the given sampling rate. */
+uint32_t filter_bandwidth_for_sampling_rate(int32_t sampling_rate);
+
 } /* namespace ui */
 
 #endif /*__UI_SPECTRUM_H__*/

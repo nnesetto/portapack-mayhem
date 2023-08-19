@@ -26,7 +26,6 @@
 #include "ui.hpp"
 #include "file.hpp"
 #include "ui_navigation.hpp"
-#include "ui_font_fixed_8x16.hpp"
 
 #include "portapack.hpp"
 
@@ -72,6 +71,7 @@ class GeoPos : public View {
     void set_lat(float lat);
     void set_lon(float lon);
     int32_t altitude();
+    void hide_altitude();
     float lat();
     float lon();
 
@@ -84,8 +84,8 @@ class GeoPos : public View {
 
     Labels labels_position{
         {{1 * 8, 0 * 16}, "Alt:", Color::light_grey()},
-        {{1 * 8, 1 * 16}, "Lat:    *  '  \"", Color::light_grey()},  // No ° symbol in 8x16 font
-        {{1 * 8, 2 * 16}, "Lon:    *  '  \"", Color::light_grey()},
+        {{1 * 8, 1 * 16}, "Lat:    \xB0  '  \"", Color::light_grey()},  // 0xB0 is degree ° symbol in our 8x16 font
+        {{1 * 8, 2 * 16}, "Lon:    \xB0  '  \"", Color::light_grey()},
     };
 
     NumberField field_altitude{
@@ -158,9 +158,12 @@ class GeoMap : public Widget {
     void paint(Painter& painter) override;
 
     bool on_touch(const TouchEvent event) override;
+    bool on_encoder(const EncoderEvent delta) override;
 
     bool init();
     void set_mode(GeoMapMode mode);
+    void set_manual_panning(bool v);
+    bool manual_panning();
     void move(const float lon, const float lat);
     void set_tag(std::string new_tag) {
         tag_ = new_tag;
@@ -176,13 +179,18 @@ class GeoMap : public Widget {
     MapMarkerStored store_marker(GeoMarker& marker);
 
    private:
+    void draw_scale(Painter& painter);
     void draw_bearing(const Point origin, const uint16_t angle, uint32_t size, const Color color);
     void draw_marker(Painter& painter, const ui::Point itemPoint, const uint16_t itemAngle, const std::string itemTag, const Color color = Color::red(), const Color fontColor = Color::white(), const Color backColor = Color::black());
+    void draw_markers(Painter& painter);
+    void map_zoom_line(ui::Color* buffer);
 
+    bool manual_panning_{false};
     GeoMapMode mode_{};
     File map_file{};
     uint16_t map_width{}, map_height{};
     int32_t map_center_x{}, map_center_y{};
+    int16_t map_zoom{1};
     float lon_ratio{}, lat_ratio{};
     double map_bottom{};
     double map_world_lon{};
@@ -192,6 +200,7 @@ class GeoMap : public Widget {
     int32_t prev_x_pos{0xFFFF}, prev_y_pos{0xFFFF};
     float lat_{};
     float lon_{};
+    float pixels_per_km{};
     uint16_t angle_{};
     std::string tag_{};
 

@@ -24,11 +24,11 @@
 #include "ui_widget.hpp"
 #include "ui_navigation.hpp"
 #include "ui_transmitter.hpp"
-#include "ui_font_fixed_8x16.hpp"
 
 #include "message.hpp"
 #include "transmitter_model.hpp"
 #include "app_settings.hpp"
+#include "radio_state.hpp"
 #include "portapack.hpp"
 
 namespace ui {
@@ -51,9 +51,12 @@ class CoasterPagerView : public View {
 
     tx_modes tx_mode = IDLE;
 
-    // app save settings
-    std::app_settings settings{};
-    std::app_settings::AppSettings app_settings{};
+    TxRadioState radio_state_{
+        1750000 /* bandwidth */,
+        2280000 /* sampling rate */
+    };
+    app_settings::SettingsManager settings_{
+        "tx_coaster", app_settings::Mode::TX};
 
     void start_tx();
     void generate_frame();

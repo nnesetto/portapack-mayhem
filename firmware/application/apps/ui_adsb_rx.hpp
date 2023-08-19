@@ -24,7 +24,6 @@
 
 #include "ui_receiver.hpp"
 #include "ui_geomap.hpp"
-#include "ui_font_fixed_8x16.hpp"
 #include "string_format.hpp"
 
 #include "file.hpp"
@@ -34,6 +33,7 @@
 #include "adsb.hpp"
 #include "message.hpp"
 #include "app_settings.hpp"
+#include "radio_state.hpp"
 #include "crc.hpp"
 
 using namespace adsb;
@@ -341,7 +341,13 @@ class ADSBRxView : public View {
     void sort_entries_by_state();
 
    private:
-    rf::Frequency prevFreq = {0};
+    RxRadioState radio_state_{
+        2500000 /* bandwidth */,
+        2000000 /* sampling rate */,
+        ReceiverModel::Mode::SpectrumAnalysis};
+    app_settings::SettingsManager settings_{
+        "rx_adsb", app_settings::Mode::RX};
+
     std::unique_ptr<ADSBLogger> logger{};
     void on_frame(const ADSBFrameMessage* message);
     void on_tick_second();
@@ -351,9 +357,6 @@ class ADSBRxView : public View {
 
 #define MARKER_UPDATE_SECONDS (5)
     int ticksSinceMarkerRefresh{MARKER_UPDATE_SECONDS - 1};
-    // app save settings
-    std::app_settings settings{};
-    std::app_settings::AppSettings app_settings{};
 
     const RecentEntriesColumns columns{{{"ICAO/Call", 9},
                                         {"Lvl", 3},

@@ -25,7 +25,6 @@
 #include "ui_tabview.hpp"
 #include "ui_navigation.hpp"
 #include "ui_transmitter.hpp"
-#include "ui_font_fixed_8x16.hpp"
 
 #include "bht.hpp"
 #include "bitmap.hpp"
@@ -33,6 +32,7 @@
 #include "transmitter_model.hpp"
 #include "encoders.hpp"
 #include "app_settings.hpp"
+#include "radio_state.hpp"
 #include "portapack.hpp"
 
 namespace ui {
@@ -166,9 +166,9 @@ class BHTView : public View {
     std::string title() const override { return "BHT TX"; };
 
    private:
-    // app save settings
-    std::app_settings settings{};
-    std::app_settings::AppSettings app_settings{};
+    TxRadioState radio_state_{};
+    app_settings::SettingsManager settings_{
+        "tx_bht", app_settings::Mode::TX};
 
     void on_tx_progress(const uint32_t progress, const bool done);
     void start_tx();

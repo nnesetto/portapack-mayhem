@@ -29,6 +29,10 @@
 #include "ui_textentry.hpp"
 #include "ui_menu.hpp"
 
+// TODO: Building this as a custom widget instead of using
+// all the Button controls would save a considerable amount of RAM.
+// The Buttons each have a backing string but these only need one char.
+
 namespace ui {
 
 class AlphanumView : public TextEntryView {
@@ -43,30 +47,47 @@ class AlphanumView : public TextEntryView {
     bool on_encoder(const EncoderEvent delta) override;
 
    private:
-    const char* const keys_upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ' .<";
-    const char* const keys_lower = "abcdefghijklmnopqrstuvwxyz' .<";
-    const char* const keys_digit = "0123456789!\"#'()*+-/:;=>?@[\\]<";
+    enum class ShiftMode : uint8_t {
+        None,
+        Shift,
+        ShiftLock,
+    };
 
-    const std::pair<std::string, const char*> key_sets[3] = {
-        {"Upper", keys_upper},
-        {"Lower", keys_lower},
-        {"Digit", keys_digit}};
+    const char* const keys_lower = "abcdefghijklmnopqrstuvwxyz, .";
+    const char* const keys_upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ, .";
+    const char* const keys_digit = "1234567890()'`\"+-*/=<>_\\!?, .";
+    const char* const keys_symbl = "!@#$%^&*()[]'`\"{}|:;<>-_~?, .";
+
+    struct key_set_t {
+        const char* name;
+        const char* normal;
+        const char* shifted;
+    };
+
+    const key_set_t key_sets[2] = {
+        {"abc", keys_lower, keys_upper},
+        {"123", keys_digit, keys_symbl}};
 
     int16_t focused_button = 0;
-    uint32_t mode = 0;  // Uppercase
+    uint32_t mode = 0;  // Letters.
+    ShiftMode shift_mode = ShiftMode::None;
 
-    void set_mode(const uint32_t new_mode);
+    void set_mode(uint32_t new_mode, ShiftMode new_shift_mode = ShiftMode::None);
+    void refresh_keys();
     void on_button(Button& button);
 
-    std::array<Button, 30> buttons{};
+    std::array<Button, 29> buttons{};
 
-    Button button_mode{
-        {21 * 8, 33 * 8, 8 * 8, 32},
-        ""};
+    NewButton button_shift{
+        {192, 214, screen_width / 5, 38},
+        {},
+        &bitmap_icon_shift,
+        Color::dark_grey()};
 
-    Text text_raw{
-        {1 * 8, 33 * 8, 4 * 8, 16},
-        "Raw:"};
+    Labels labels{
+        {{1 * 8, 33 * 8}, "Raw:", Color::light_grey()},
+        {{1 * 8, 35 * 8}, "AKA:", Color::light_grey()}};
+
     NumberField field_raw{
         {5 * 8, 33 * 8},
         3,
@@ -74,9 +95,17 @@ class AlphanumView : public TextEntryView {
         1,
         '0'};
 
-    Button button_ok{
-        {10 * 8, 33 * 8, 9 * 8, 32},
-        "OK"};
+    Text text_raw_to_char{
+        {5 * 8, 35 * 8, 4 * 8, 16},
+        "0"};
+
+    Button button_delete{
+        {9 * 8, 32 * 8 - 3, 7 * 8, 3 * 16 + 3},
+        "<DEL"};
+
+    Button button_mode{
+        {16 * 8, 32 * 8 - 3, 6 * 8, 3 * 16 + 3},
+        ""};
 };
 
 } /* namespace ui */

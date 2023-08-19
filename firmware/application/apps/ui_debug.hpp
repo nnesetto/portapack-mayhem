@@ -30,6 +30,8 @@
 
 #include "rffc507x.hpp"
 #include "portapack.hpp"
+#include "memory_map.hpp"
+#include "irq_controls.hpp"
 
 #include <functional>
 #include <utility>
@@ -219,7 +221,8 @@ class ControlsSwitchesWidget : public Widget {
     ControlsSwitchesWidget(
         Rect parent_rect)
         : Widget{parent_rect},
-          key_event_mask(0) {
+          key_event_mask(0),
+          long_press_key_event_mask{0} {
         set_focusable(true);
     }
 
@@ -230,6 +233,7 @@ class ControlsSwitchesWidget : public Widget {
 
    private:
     uint8_t key_event_mask;
+    uint8_t long_press_key_event_mask;
 
     MessageHandlerRegistration message_handler_frame_sync{
         Message::ID::DisplayFrameSync,
@@ -249,18 +253,88 @@ class DebugControlsView : public View {
     std::string title() const override { return "Buttons Test"; };
 
    private:
-    Text text_title{
-        {64, 16, 184, 16},
-        "Controls State",
-    };
+    Labels labels{
+        {{8 * 8, 1 * 16}, "Controls State", Color::white()},
+        {{0 * 8, 14 * 16}, "Long-Press Mode:", Color::grey()}};
 
     ControlsSwitchesWidget switches_widget{
         {80, 80, 80, 112},
     };
 
+    OptionsField options_switches_mode{
+        {17 * 8, 14 * 16},
+        8,
+        {
+            {"Disabled", 0},
+            {"Enabled", 0xFF},  // all KeyEvent bits to long-press mode
+        }};
+
     Button button_done{
         {72, 264, 96, 24},
         "Done"};
+};
+
+class DebugPmemView : public View {
+   public:
+    DebugPmemView(NavigationView& nav);
+    void focus() override;
+    bool on_encoder(const EncoderEvent delta) override;
+    std::string title() const override { return "P.Mem Debug"; }
+
+   private:
+    struct pmem_data {
+        uint32_t regfile[63];
+        uint32_t check_value;
+    };
+
+    static constexpr uint8_t page_size{96};  // Must be multiply of 4 otherwise bit shifting for register view wont work properly
+    static constexpr uint8_t page_max{(portapack::memory::map::backup_ram.size() + page_size - 1) / page_size - 1};
+
+    int32_t page{0};
+
+    volatile const pmem_data& data;
+
+    Text text_page{{16, 16, 208, 16}};
+
+    RegistersWidget registers_widget;
+
+    Text text_checksum{{16, 232, 208, 16}};
+    Text text_checksum2{{16, 248, 208, 16}};
+
+    Button button_ok{
+        {240 / 3, 270, 240 / 3, 24},
+        "OK",
+    };
+
+    void update();
+    uint32_t registers_widget_feed(const size_t register_number);
+};
+
+class DebugFontsView : public View {
+   public:
+    DebugFontsView(NavigationView& nav);
+    void paint(Painter& painter) override;
+    std::string title() const override { return "Fonts"; };
+
+   private:
+    uint16_t display_font(Painter& painter, uint16_t y_offset, const Style* font_style, std::string_view font_name);
+    NavigationView& nav_;
+};
+
+class DebugScreenTest : public View {
+   public:
+    DebugScreenTest(NavigationView& nav);
+    bool on_key(KeyEvent key) override;
+    bool on_encoder(EncoderEvent delta) override;
+    bool on_touch(TouchEvent event) override;
+    uint16_t semirand();
+    void paint(Painter& painter) override;
+
+   private:
+    NavigationView& nav_;
+    Point pen_pos{};
+    Color pen_color{0};
+    int16_t pen_size{10};
 };
 
 /*class DebugLCRView : public View {

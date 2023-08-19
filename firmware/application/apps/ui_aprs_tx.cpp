@@ -26,7 +26,6 @@
 #include "aprs.hpp"
 #include "string_format.hpp"
 #include "portapack.hpp"
-#include "cpld_update.hpp"
 #include "baseband_api.hpp"
 #include "portapack_shared_memory.hpp"
 #include "portapack_persistent_memory.hpp"
@@ -44,13 +43,8 @@ void APRSTXView::focus() {
 }
 
 APRSTXView::~APRSTXView() {
-    // save app settings
-    app_settings.tx_frequency = transmitter_model.tuning_frequency();
-    settings.save("tx_aprs", &app_settings);
-
     transmitter_model.disable();
-    hackrf::cpld::load_sram_no_verify();  // to leave all RX ok, without ghost signal problem at the exit.
-    baseband::shutdown();                 // better this function at the end, not load_sram() that sometimes produces hang up.
+    baseband::shutdown();
 }
 
 void APRSTXView::start_tx() {
@@ -62,9 +56,6 @@ void APRSTXView::start_tx() {
     // uint8_t * bb_data_ptr = shared_memory.bb_data.data;
     // text_payload.set(to_string_hex_array(bb_data_ptr + 56, 15));
 
-    transmitter_model.set_tuning_frequency(persistent_memory::tuned_frequency());
-    transmitter_model.set_sampling_rate(AFSK_TX_SAMPLERATE);
-    transmitter_model.set_baseband_bandwidth(1750000);
     transmitter_model.enable();
 
     baseband::set_afsk_data(
@@ -97,14 +88,6 @@ APRSTXView::APRSTXView(NavigationView& nav) {
                   &button_set,
                   &tx_view});
 
-    // load app settings
-    auto rc = settings.load("tx_aprs", &app_settings);
-    if (rc == SETTINGS_OK) {
-        transmitter_model.set_rf_amp(app_settings.tx_amp);
-        transmitter_model.set_tuning_frequency(app_settings.tx_frequency);
-        transmitter_model.set_tx_gain(app_settings.tx_gain);
-    }
-
     button_set.on_select = [this, &nav](Button&) {
         text_prompt(
             nav,
@@ -116,9 +99,9 @@ APRSTXView::APRSTXView(NavigationView& nav) {
     };
 
     tx_view.on_edit_frequency = [this, &nav]() {
-        auto new_view = nav.push<FrequencyKeypadView>(receiver_model.tuning_frequency());
+        auto new_view = nav.push<FrequencyKeypadView>(transmitter_model.target_frequency());
         new_view->on_changed = [this](rf::Frequency f) {
-            receiver_model.set_tuning_frequency(f);
+            transmitter_model.set_target_frequency(f);
         };
     };
 

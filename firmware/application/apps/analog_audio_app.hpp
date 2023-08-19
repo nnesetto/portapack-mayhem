@@ -26,23 +26,19 @@
 #include "receiver_model.hpp"
 
 #include "ui_receiver.hpp"
+#include "ui_freq_field.hpp"
 #include "ui_spectrum.hpp"
 #include "ui_record_view.hpp"
-#include "ui_font_fixed_8x16.hpp"
+#include "ui_styles.hpp"
 #include "app_settings.hpp"
+#include "radio_state.hpp"
 #include "tone_key.hpp"
 
 namespace ui {
 
-constexpr Style style_options_group{
-    .font = font::fixed_8x16,
-    .background = Color::blue(),
-    .foreground = Color::white(),
-};
-
 class AMOptionsView : public View {
    public:
-    AMOptionsView(const Rect parent_rect, const Style* const style);
+    AMOptionsView(Rect parent_rect, const Style* style);
 
    private:
     Text label_config{
@@ -52,15 +48,15 @@ class AMOptionsView : public View {
 
     OptionsField options_config{
         {3 * 8, 0 * 16},
-        5,
+        6,  // Max option length
         {
-            // using  common messages from freqman.cpp
+            // Using common messages from freqman_ui.cpp
         }};
 };
 
 class NBFMOptionsView : public View {
    public:
-    NBFMOptionsView(const Rect parent_rect, const Style* const style);
+    NBFMOptionsView(Rect parent_rect, const Style* style);
 
    private:
     Text label_config{
@@ -69,16 +65,16 @@ class NBFMOptionsView : public View {
     };
     OptionsField options_config{
         {3 * 8, 0 * 16},
-        4,
+        3,  // Max option length
         {
-            // using  common messages from freqman.cpp
+            // Using common messages from freqman_ui.cpp
         }};
 
     Text text_squelch{
-        {9 * 8, 0 * 16, 8 * 8, 1 * 16},
+        {7 * 8, 0 * 16, 8 * 8, 1 * 16},
         "SQ   /99"};
     NumberField field_squelch{
-        {12 * 8, 0 * 16},
+        {10 * 8, 0 * 16},
         2,
         {0, 99},
         1,
@@ -88,7 +84,7 @@ class NBFMOptionsView : public View {
 
 class WFMOptionsView : public View {
    public:
-    WFMOptionsView(const Rect parent_rect, const Style* const style);
+    WFMOptionsView(Rect parent_rect, const Style* style);
 
    private:
     Text label_config{
@@ -97,9 +93,9 @@ class WFMOptionsView : public View {
     };
     OptionsField options_config{
         {3 * 8, 0 * 16},
-        4,
+        4,  // Max option length
         {
-            // using  common messages from freqman.cpp
+            // Using common messages from freqman_ui.cpp
         }};
 };
 
@@ -107,7 +103,7 @@ class AnalogAudioView;
 
 class SPECOptionsView : public View {
    public:
-    SPECOptionsView(AnalogAudioView* view, const Rect parent_rect, const Style* const style);
+    SPECOptionsView(AnalogAudioView* view, Rect parent_rect, const Style* style);
 
    private:
     Text label_config{
@@ -142,12 +138,10 @@ class SPECOptionsView : public View {
 class AnalogAudioView : public View {
    public:
     AnalogAudioView(NavigationView& nav);
+    AnalogAudioView(NavigationView& nav, ReceiverModel::settings_t override);
     ~AnalogAudioView();
 
-    void on_hide() override;
-
-    void set_parent_rect(const Rect new_parent_rect) override;
-
+    void set_parent_rect(Rect new_parent_rect) override;
     void focus() override;
 
     std::string title() const override { return "Audio RX"; };
@@ -161,9 +155,11 @@ class AnalogAudioView : public View {
    private:
     static constexpr ui::Dim header_height = 3 * 16;
 
-    // app save settings
-    std::app_settings settings{};
-    std::app_settings::AppSettings app_settings{};
+    NavigationView& nav_;
+    RxRadioState radio_state_{};
+    app_settings::SettingsManager settings_{
+        "rx_audio", app_settings::Mode::RX,
+        app_settings::Options::UseGlobalTargetFrequency};
 
     const Rect options_view_rect{0 * 8, 1 * 16, 30 * 8, 1 * 16};
     const Rect nbfm_view_rect{0 * 8, 1 * 16, 18 * 8, 1 * 16};
@@ -172,24 +168,18 @@ class AnalogAudioView : public View {
     uint32_t spec_bw = 20000000;
     uint16_t spec_trigger = 63;
 
-    NavigationView& nav_;
-    // bool exit_on_squelch { false };
-
     RSSI rssi{
-        {21 * 8, 0, 6 * 8, 4},
-    };
+        {21 * 8, 0, 6 * 8, 4}};
 
     Channel channel{
-        {21 * 8, 5, 6 * 8, 4},
-    };
+        {21 * 8, 5, 6 * 8, 4}};
 
     Audio audio{
-        {21 * 8, 10, 6 * 8, 4},
-    };
+        {21 * 8, 10, 6 * 8, 4}};
 
-    FrequencyField field_frequency{
+    RxFrequencyField field_frequency{
         {5 * 8, 0 * 16},
-    };
+        nav_};
 
     LNAGainField field_lna{
         {15 * 8, 0 * 16}};
@@ -207,16 +197,11 @@ class AnalogAudioView : public View {
             {"SPEC", toUType(ReceiverModel::Mode::SpectrumAnalysis)},
         }};
 
-    NumberField field_volume{
-        {28 * 8, 0 * 16},
-        2,
-        {0, 99},
-        1,
-        ' ',
-    };
+    AudioVolumeField field_volume{
+        {28 * 8, 0 * 16}};
 
     Text text_ctcss{
-        {19 * 8, 1 * 16, 11 * 8, 1 * 16},
+        {16 * 8, 1 * 16, 14 * 8, 1 * 16},
         ""};
 
     std::unique_ptr<Widget> options_widget{};
@@ -229,38 +214,26 @@ class AnalogAudioView : public View {
         4096,
         4};
 
-    spectrum::WaterfallWidget waterfall{true};
+    spectrum::WaterfallView waterfall{true};
 
-    void on_tuning_frequency_changed(rf::Frequency f);
     void on_baseband_bandwidth_changed(uint32_t bandwidth_hz);
-    void on_modulation_changed(const ReceiverModel::Mode modulation);
+    void on_modulation_changed(ReceiverModel::Mode modulation);
     void on_show_options_frequency();
     void on_show_options_rf_gain();
     void on_show_options_modulation();
     void on_frequency_step_changed(rf::Frequency f);
     void on_reference_ppm_correction_changed(int32_t v);
-    void on_headphone_volume_changed(int32_t v);
-    void on_edit_frequency();
 
     void remove_options_widget();
     void set_options_widget(std::unique_ptr<Widget> new_widget);
 
-    void update_modulation(const ReceiverModel::Mode modulation);
+    void update_modulation(ReceiverModel::Mode modulation);
 
-    // void squelched();
-    void handle_coded_squelch(const uint32_t value);
-
-    /*MessageHandlerRegistration message_handler_squelch_signal {
-                Message::ID::RequestSignal,
-                [this](const Message* const p) {
-                        (void)p;
-                        this->squelched();
-                }
-        };*/
+    void handle_coded_squelch(uint32_t value);
 
     MessageHandlerRegistration message_handler_coded_squelch{
         Message::ID::CodedSquelch,
-        [this](const Message* const p) {
+        [this](const Message* p) {
             const auto message = *reinterpret_cast<const CodedSquelchMessage*>(p);
             this->handle_coded_squelch(message.value);
         }};

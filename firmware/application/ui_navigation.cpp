@@ -22,7 +22,7 @@
 
 #include "ui_navigation.hpp"
 
-//#include "modules.h"
+// #include "modules.h"
 
 #include "portapack.hpp"
 #include "event_m0.hpp"
@@ -44,15 +44,16 @@
 #include "ui_debug.hpp"
 #include "ui_encoders.hpp"
 #include "ui_fileman.hpp"
+#include "ui_font_fixed_8x16.hpp"
 #include "ui_freqman.hpp"
 #include "ui_jammer.hpp"
-//#include "ui_keyfob.hpp"
+// #include "ui_keyfob.hpp"
 #include "ui_lcr.hpp"
 #include "ui_mictx.hpp"
 #include "ui_morse.hpp"
-//#include "ui_numbers.hpp"
-//#include "ui_nuoptix.hpp"
-//#include "ui_playdead.hpp"
+// #include "ui_numbers.hpp"
+// #include "ui_nuoptix.hpp"
+// #include "ui_playdead.hpp"
 #include "ui_pocsag_tx.hpp"
 #include "ui_rds.hpp"
 #include "ui_remote.hpp"
@@ -65,7 +66,8 @@
 #include "ui_siggen.hpp"
 #include "ui_sonde.hpp"
 #include "ui_sstvtx.hpp"
-//#include "ui_test.hpp"
+#include "ui_styles.hpp"
+// #include "ui_test.hpp"
 #include "ui_text_editor.hpp"
 #include "ui_tone_search.hpp"
 #include "ui_touchtunes.hpp"
@@ -75,8 +77,9 @@
 #include "ui_flash_utility.hpp"
 #include "ui_sd_over_usb.hpp"
 #include "ui_spectrum_painter.hpp"
+#include "ui_ss_viewer.hpp"
 
-//#include "acars_app.hpp"
+// #include "acars_app.hpp"
 #include "ais_app.hpp"
 #include "analog_audio_app.hpp"
 #include "analog_tv_app.hpp"
@@ -96,66 +99,75 @@
 
 using portapack::receiver_model;
 using portapack::transmitter_model;
+namespace pmem = portapack::persistent_memory;
 
 namespace ui {
+
+/* StatusTray ************************************************************/
+
+StatusTray::StatusTray(Point pos)
+    : View{{pos, {0, height}}},
+      pos_(pos) {
+    set_focusable(false);
+}
+
+void StatusTray::add(Widget* child) {
+    width_ += child->parent_rect().width();
+    add_child(child);
+}
+
+void StatusTray::update_layout() {
+    // Widen the tray's parent rect.
+    auto rect = parent_rect();
+    set_parent_rect({{rect.left() - width_, rect.top()}, {rect.right() + width_, height}});
+
+    // Update the children.
+    auto x = 0;
+    for (auto child : children()) {
+        auto size = child->parent_rect().size();
+        child->set_parent_rect({{x, 0}, size});
+        x += size.width();
+    }
+    set_dirty();
+}
+
+void StatusTray::clear() {
+    // More efficient than 'remove_children'.
+    for (auto child : children())
+        child->set_parent(nullptr);
+    children_.clear();
+    width_ = 0;
+    set_parent_rect({pos_, {width_, height}});
+    set_dirty();
+}
+
+void StatusTray::paint(Painter&) {
+}
 
 /* SystemStatusView ******************************************************/
 
 SystemStatusView::SystemStatusView(
     NavigationView& nav)
     : nav_(nav) {
-    static constexpr Style style_systemstatus{
-        .font = font::fixed_8x16,
-        .background = Color::dark_grey(),
-        .foreground = Color::white(),
-    };
-
     add_children({
         &backdrop,
         &button_back,
         &title,
         &button_title,
-        &button_converter,
-        &button_speaker,
-        &button_stealth,
-        //&button_textentry,
-        &button_camera,
-        &button_sleep,
-        &button_bias_tee,
-        &button_clock_status,
-        &sd_card_status_view,
+        &status_icons,
     });
 
-    if (portapack::persistent_memory::config_speaker())
-        button_speaker.hidden(false);
-    else
-        button_speaker.hidden(true);
-
-    if (portapack::persistent_memory::config_hide_converter()) {
-        button_converter.hidden(true);
-    } else {
-        button_converter.hidden(false);
-        if (portapack::persistent_memory::config_converter()) {
-            button_converter.set_foreground(Color::red());
-        } else {
-            button_converter.set_foreground(Color::light_grey());
-        }
+    if (pmem::should_use_sdcard_for_pmem()) {
+        pmem::load_persistent_settings_from_file();
     }
 
     button_back.id = -1;  // Special ID used by FocusManager
-    title.set_style(&style_systemstatus);
-
-    if (portapack::persistent_memory::stealth_mode())
-        button_stealth.set_foreground(ui::Color::green());
-
-    /*if (!portapack::persistent_memory::ui_config_textentry())
-                button_textentry.set_bitmap(&bitmap_icon_keyboard);
-        else
-                button_textentry.set_bitmap(&bitmap_icon_unistroke);*/
-
-    refresh();
+    title.set_style(&Styles::bg_dark_grey);
 
     button_back.on_select = [this](ImageButton&) {
+        if (pmem::should_use_sdcard_for_pmem()) {
+            pmem::save_persistent_settings_to_file();
+        }
         if (this->on_back)
             this->on_back();
     };
@@ -168,21 +180,26 @@ SystemStatusView::SystemStatusView(
         this->on_converter();
     };
 
-    button_speaker.on_select = [this](ImageButton&) {
-        this->on_speaker();
+    toggle_speaker.on_change = [this](bool v) {
+        pmem::set_config_speaker_disable(v);
+        audio::output::update_audio_mute();
+        refresh();
     };
 
-    button_stealth.on_select = [this](ImageButton&) {
-        this->on_stealth();
+    toggle_mute.on_change = [this](bool v) {
+        pmem::set_config_audio_mute(v);
+        audio::output::update_audio_mute();
+        refresh();
+    };
+
+    toggle_stealth.on_change = [this](bool v) {
+        pmem::set_stealth_mode(v);
+        refresh();
     };
 
     button_bias_tee.on_select = [this](ImageButton&) {
         this->on_bias_tee();
     };
-
-    /*button_textentry.on_select = [this](ImageButton&) {
-                this->on_textentry();
-        };*/
 
     button_camera.on_select = [this](ImageButton&) {
         this->on_camera();
@@ -196,57 +213,51 @@ SystemStatusView::SystemStatusView(
     button_clock_status.on_select = [this](ImageButton&) {
         this->on_clk();
     };
+
+    // Initialize toggle buttons
+    toggle_speaker.set_value(pmem::config_speaker_disable());
+    toggle_mute.set_value(pmem::config_audio_mute());
+    toggle_stealth.set_value(pmem::stealth_mode());
+
+    audio::output::update_audio_mute();
+    refresh();
 }
 
 void SystemStatusView::refresh() {
-    if (portapack::persistent_memory::config_hide_converter()) {
-        button_converter.hidden(true);
-    } else {
-        if (portapack::persistent_memory::config_updown_converter()) {
-            button_converter.set_bitmap(&bitmap_icon_downconvert);
-        } else {
-            button_converter.set_bitmap(&bitmap_icon_upconvert);
-        }
-        button_converter.hidden(false);
-        if (portapack::persistent_memory::config_converter()) {
-            button_converter.set_foreground(Color::red());
-        } else {
-            button_converter.set_foreground(Color::light_grey());
-        }
-    }
-    // Retune to take converter change in account
-    receiver_model.set_tuning_frequency(portapack::persistent_memory::tuned_frequency());
-    transmitter_model.set_tuning_frequency(portapack::persistent_memory::tuned_frequency());
+    // NB: Order of insertion is the display order Left->Right.
+    // TODO: Might be better to support hide and only add once.
+    status_icons.clear();
+    if (!pmem::ui_hide_camera()) status_icons.add(&button_camera);
+    if (!pmem::ui_hide_sleep()) status_icons.add(&button_sleep);
+    if (!pmem::ui_hide_stealth()) status_icons.add(&toggle_stealth);
+    if (!pmem::ui_hide_converter()) status_icons.add(&button_converter);
+    if (!pmem::ui_hide_bias_tee()) status_icons.add(&button_bias_tee);
+    if (!pmem::ui_hide_clock()) status_icons.add(&button_clock_status);
+    if (!pmem::ui_hide_mute()) status_icons.add(&toggle_mute);
 
-    if (!portapack::persistent_memory::config_speaker()) {
-        button_speaker.set_foreground(Color::light_grey());
-        button_speaker.set_bitmap(&bitmap_icon_speaker_mute);
-        button_speaker.hidden(false);
-    } else {
-        button_speaker.hidden(true);
-    }
+    // Display "Disable speaker" icon only if AK4951 Codec which has separate speaker/headphone control
+    if (audio::speaker_disable_supported() && !pmem::ui_hide_speaker()) status_icons.add(&toggle_speaker);
 
+    if (!pmem::ui_hide_sd_card()) status_icons.add(&sd_card_status_view);
+    status_icons.update_layout();
+
+    // Clock status
+    bool external_clk = portapack::clock_manager.get_reference().source == ClockManager::ReferenceSource::External;
+    button_clock_status.set_bitmap(external_clk ? &bitmap_icon_clk_ext : &bitmap_icon_clk_int);
+    button_clock_status.set_foreground(pmem::clkout_enabled() ? Color::green() : Color::light_grey());
+
+    // Antenna DC Bias
     if (portapack::get_antenna_bias()) {
         button_bias_tee.set_bitmap(&bitmap_icon_biast_on);
-        button_bias_tee.set_foreground(ui::Color::yellow());
+        button_bias_tee.set_foreground(Color::yellow());
     } else {
         button_bias_tee.set_bitmap(&bitmap_icon_biast_off);
-        button_bias_tee.set_foreground(ui::Color::light_grey());
+        button_bias_tee.set_foreground(Color::light_grey());
     }
 
-    if (portapack::clock_manager.get_reference().source == ClockManager::ReferenceSource::External) {
-        button_clock_status.set_bitmap(&bitmap_icon_clk_ext);
-        //		button_bias_tee.set_foreground(ui::Color::green());   Typo?
-    } else {
-        button_clock_status.set_bitmap(&bitmap_icon_clk_int);
-        //		button_bias_tee.set_foreground(ui::Color::green());
-    }
-
-    if (portapack::persistent_memory::clkout_enabled()) {
-        button_clock_status.set_foreground(ui::Color::green());
-    } else {
-        button_clock_status.set_foreground(ui::Color::light_grey());
-    }
+    // Converter
+    button_converter.set_bitmap(pmem::config_updown_converter() ? &bitmap_icon_downconvert : &bitmap_icon_upconvert);
+    button_converter.set_foreground(pmem::config_converter() ? Color::red() : Color::light_grey());
 
     set_dirty();
 }
@@ -271,103 +282,70 @@ void SystemStatusView::set_title(const std::string new_value) {
     if (new_value.empty()) {
         title.set(default_title);
     } else {
-        title.set(new_value);
+        // Limit length of title string to prevent partial characters if too many StatusView icons
+        size_t max_len = (status_icons.parent_rect().left() - title.parent_rect().left()) / 8;
+        title.set(truncate(new_value, max_len));
     }
 }
 
 void SystemStatusView::on_converter() {
-    if (!portapack::persistent_memory::config_converter()) {
-        portapack::persistent_memory::set_config_converter(true);
-        button_converter.set_foreground(Color::red());
-    } else {
-        portapack::persistent_memory::set_config_converter(false);
-        button_converter.set_foreground(Color::light_grey());
-    }
-    receiver_model.set_tuning_frequency(portapack::persistent_memory::tuned_frequency());  // Retune
-}
+    pmem::set_config_converter(!pmem::config_converter());
 
-void SystemStatusView::on_speaker() {
-    if (!portapack::speaker_mode) {
-        portapack::set_speaker_mode(true);
-        button_speaker.set_foreground(Color::green());
-        button_speaker.set_bitmap(&bitmap_icon_speaker);
-    } else {
-        portapack::set_speaker_mode(false);
-        button_speaker.set_foreground(Color::light_grey());
-        button_speaker.set_bitmap(&bitmap_icon_speaker_mute);
-    }
-}
-
-void SystemStatusView::on_stealth() {
-    bool mode = not portapack::persistent_memory::stealth_mode();
-
-    portapack::persistent_memory::set_stealth_mode(mode);
-
-    button_stealth.set_foreground(mode ? Color::green() : Color::light_grey());
+    // Poke to update tuning
+    // NOTE: Code assumes here that a TX app isn't active, since RX & TX have diff tuning offsets
+    // (and there's only one tuner in the radio so can't update tuner for both).
+    // TODO: Maybe expose the 'enabled_' flag on models.
+    receiver_model.set_target_frequency(receiver_model.target_frequency());
+    refresh();
 }
 
 void SystemStatusView::on_bias_tee() {
-    if (!portapack::antenna_bias) {
-        nav_.display_modal("Bias voltage", "Enable DC voltage on\nantenna connector?", YESNO, [this](bool v) {
-            if (v) {
-                portapack::set_antenna_bias(true);
-                // radio::set_antenna_bias(true);
-                receiver_model.set_antenna_bias();
-                transmitter_model.set_antenna_bias();
-                refresh();
-            }
-        });
+    if (!portapack::get_antenna_bias()) {
+        nav_.display_modal("Bias voltage",
+                           "Enable DC voltage on\nantenna connector?",
+                           YESNO,
+                           [this](bool v) {
+                               if (v) {
+                                   portapack::set_antenna_bias(true);
+                                   receiver_model.set_antenna_bias();
+                                   transmitter_model.set_antenna_bias();
+                                   refresh();
+                               }
+                           });
     } else {
         portapack::set_antenna_bias(false);
-        // radio::set_antenna_bias(false);
         receiver_model.set_antenna_bias();
         transmitter_model.set_antenna_bias();
+
+        // Ensure this is disabled. The models don't actually
+        // update the radio unless they are 'enabled_'.
+        radio::set_antenna_bias(false);
         refresh();
     }
 }
-
-/*void SystemStatusView::on_textentry() {
-        uint8_t cfg;
-
-        cfg = portapack::persistent_memory::ui_config_textentry();
-        portapack::persistent_memory::set_config_textentry(cfg ^ 1);
-
-        if (!cfg)
-                button_textentry.set_bitmap(&bitmap_icon_unistroke);
-        else
-                button_textentry.set_bitmap(&bitmap_icon_keyboard);
-}*/
 
 void SystemStatusView::on_camera() {
     ensure_directory("SCREENSHOTS");
     auto path = next_filename_matching_pattern(u"SCREENSHOTS/SCR_????.PNG");
 
-    if (path.empty()) {
+    if (path.empty())
         return;
-    }
 
     PNGWriter png;
-    auto create_error = png.create(path);
-    if (create_error.is_valid()) {
+    auto error = png.create(path);
+    if (error)
         return;
-    }
 
-    for (int i = 0; i < 320; i++) {
-        std::array<ColorRGB888, 240> row;
-        portapack::display.read_pixels({0, i, 240, 1}, row);
+    for (int i = 0; i < screen_height; i++) {
+        std::array<ColorRGB888, screen_width> row;
+        portapack::display.read_pixels({0, i, screen_width, 1}, row);
         png.write_scanline(row);
     }
 }
 
 void SystemStatusView::on_clk() {
-    bool v = portapack::persistent_memory::clkout_enabled();
-    if (v) {
-        v = false;
-    } else {
-        v = true;
-    }
-    portapack::clock_manager.enable_clock_output(v);
-    portapack::persistent_memory::set_clkout_enabled(v);
+    pmem::set_clkout_enabled(!pmem::clkout_enabled());
+    portapack::clock_manager.enable_clock_output(pmem::clkout_enabled());
     refresh();
 }
 
@@ -395,17 +373,17 @@ InformationView::InformationView(
 
     version.set_style(&style_infobar);
 
-    ltime.set_hide_clock(portapack::persistent_memory::hide_clock());
+    ltime.set_hide_clock(pmem::hide_clock());
     ltime.set_style(&style_infobar);
     ltime.set_seconds_enabled(true);
-    ltime.set_date_enabled(portapack::persistent_memory::clock_with_date());
+    ltime.set_date_enabled(pmem::clock_with_date());
     set_dirty();
 }
 
 void InformationView::refresh() {
-    ltime.set_hide_clock(portapack::persistent_memory::hide_clock());
+    ltime.set_hide_clock(pmem::hide_clock());
     ltime.set_seconds_enabled(true);
-    ltime.set_date_enabled(portapack::persistent_memory::clock_with_date());
+    ltime.set_date_enabled(pmem::clock_with_date());
 }
 
 /* Navigation ************************************************************/
@@ -418,7 +396,7 @@ View* NavigationView::push_view(std::unique_ptr<View> new_view) {
     free_view();
 
     const auto p = new_view.get();
-    view_stack.emplace_back(std::move(new_view));
+    view_stack.emplace_back(ViewState{std::move(new_view), {}});
 
     update_view();
 
@@ -426,34 +404,14 @@ View* NavigationView::push_view(std::unique_ptr<View> new_view) {
 }
 
 void NavigationView::pop() {
-    if (view() == modal_view) {
-        modal_view = nullptr;
-    }
-
-    // Can't pop last item from stack.
-    if (view_stack.size() > 1) {
-        free_view();
-
-        view_stack.pop_back();
-
-        update_view();
-    }
+    pop(true);
 }
 
 void NavigationView::pop_modal() {
-    if (view() == modal_view) {
-        modal_view = nullptr;
-    }
-
-    // Pop modal view + underlying app view
-    if (view_stack.size() > 2) {
-        free_view();
-        view_stack.pop_back();
-        free_view();
-        view_stack.pop_back();
-
-        update_view();
-    }
+    // Pop modal view + underlying app view.
+    // TODO: this shouldn't be necessary.
+    pop(false);
+    pop(true);
 }
 
 void NavigationView::display_modal(
@@ -473,12 +431,31 @@ void NavigationView::display_modal(
     }
 }
 
+void NavigationView::pop(bool update) {
+    if (view() == modal_view) {
+        modal_view = nullptr;
+    }
+
+    // Can't pop last item from stack.
+    if (view_stack.size() > 1) {
+        auto on_pop = view_stack.back().on_pop;
+
+        free_view();
+        view_stack.pop_back();
+
+        if (update)
+            update_view();
+
+        if (on_pop) on_pop();
+    }
+}
+
 void NavigationView::free_view() {
     remove_child(view());
 }
 
 void NavigationView::update_view() {
-    const auto new_view = view_stack.back().get();
+    const auto new_view = view_stack.back().view.get();
 
     add_child(new_view);
     new_view->set_parent_rect({{0, 0}, size()});
@@ -501,39 +478,46 @@ void NavigationView::focus() {
     }
 }
 
+bool NavigationView::set_on_pop(std::function<void()> on_pop) {
+    if (view_stack.size() <= 1)
+        return false;
+
+    auto& top = view_stack.back();
+    if (top.on_pop)
+        return false;
+
+    top.on_pop = on_pop;
+    return true;
+}
+
 /* ReceiversMenuView *****************************************************/
 
 ReceiversMenuView::ReceiversMenuView(NavigationView& nav) {
-    if (portapack::persistent_memory::show_gui_return_icon()) {
-        add_items({{"..", ui::Color::light_grey(), &bitmap_icon_previous, [&nav]() { nav.pop(); }}});
+    if (pmem::show_gui_return_icon()) {
+        add_items({{"..", Color::light_grey(), &bitmap_icon_previous, [&nav]() { nav.pop(); }}});
     }
     add_items({
-        {
-            "ADS-B",
-            ui::Color::green(),
-            &bitmap_icon_adsb,
-            [&nav]() { nav.push<ADSBRxView>(); },
-        },
-        //{ "ACARS",	ui::Color::yellow(),	&bitmap_icon_adsb,			[&nav](){ nav.push<ACARSAppView>(); }, },
-        {"AIS Boats", ui::Color::green(), &bitmap_icon_ais, [&nav]() { nav.push<AISAppView>(); }},
-        {"AFSK", ui::Color::yellow(), &bitmap_icon_modem, [&nav]() { nav.push<AFSKRxView>(); }},
-        {"BTLE", ui::Color::yellow(), &bitmap_icon_btle, [&nav]() { nav.push<BTLERxView>(); }},
-        {"NRF", ui::Color::yellow(), &bitmap_icon_nrf, [&nav]() { nav.push<NRFRxView>(); }},
-        {"Audio", ui::Color::green(), &bitmap_icon_speaker, [&nav]() { nav.push<AnalogAudioView>(); }},
-        {"Analog TV", ui::Color::yellow(), &bitmap_icon_sstv, [&nav]() { nav.push<AnalogTvView>(); }},
-        {"ERT Meter", ui::Color::green(), &bitmap_icon_ert, [&nav]() { nav.push<ERTAppView>(); }},
-        {"POCSAG", ui::Color::green(), &bitmap_icon_pocsag, [&nav]() { nav.push<POCSAGAppView>(); }},
-        {"Radiosnde", ui::Color::green(), &bitmap_icon_sonde, [&nav]() { nav.push<SondeView>(); }},
-        {"TPMS Cars", ui::Color::green(), &bitmap_icon_tpms, [&nav]() { nav.push<TPMSAppView>(); }},
-        {"Recon", ui::Color::green(), &bitmap_icon_scanner, [&nav]() { nav.push<ReconView>(); }},
-        {"Level", ui::Color::green(), &bitmap_icon_options_radio, [&nav]() { nav.push<LevelView>(); }},
-        {"APRS", ui::Color::green(), &bitmap_icon_aprs, [&nav]() { nav.push<APRSRXView>(); }}
+        {"ADS-B", Color::green(), &bitmap_icon_adsb, [&nav]() { nav.push<ADSBRxView>(); }},
+        //{ "ACARS",	Color::yellow(),	&bitmap_icon_adsb,			[&nav](){ nav.push<ACARSAppView>(); }},
+        {"AIS Boats", Color::green(), &bitmap_icon_ais, [&nav]() { nav.push<AISAppView>(); }},
+        {"AFSK", Color::yellow(), &bitmap_icon_modem, [&nav]() { nav.push<AFSKRxView>(); }},
+        {"BTLE", Color::yellow(), &bitmap_icon_btle, [&nav]() { nav.push<BTLERxView>(); }},
+        {"NRF", Color::yellow(), &bitmap_icon_nrf, [&nav]() { nav.push<NRFRxView>(); }},
+        {"Audio", Color::green(), &bitmap_icon_speaker, [&nav]() { nav.push<AnalogAudioView>(); }},
+        {"Analog TV", Color::yellow(), &bitmap_icon_sstv, [&nav]() { nav.push<AnalogTvView>(); }},
+        {"ERT Meter", Color::green(), &bitmap_icon_ert, [&nav]() { nav.push<ERTAppView>(); }},
+        {"POCSAG", Color::green(), &bitmap_icon_pocsag, [&nav]() { nav.push<POCSAGAppView>(); }},
+        {"Radiosnde", Color::green(), &bitmap_icon_sonde, [&nav]() { nav.push<SondeView>(); }},
+        {"TPMS Cars", Color::green(), &bitmap_icon_tpms, [&nav]() { nav.push<TPMSAppView>(); }},
+        {"Recon", Color::green(), &bitmap_icon_scanner, [&nav]() { nav.push<ReconView>(); }},
+        {"Level", Color::green(), &bitmap_icon_options_radio, [&nav]() { nav.push<LevelView>(); }},
+        {"APRS", Color::green(), &bitmap_icon_aprs, [&nav]() { nav.push<APRSRXView>(); }}
         /*
-                { "DMR", 		ui::Color::dark_grey(),	&bitmap_icon_dmr,		[&nav](){ nav.push<NotImplementedView>(); } },
-                { "SIGFOX", 	ui::Color::dark_grey(),	&bitmap_icon_fox,		[&nav](){ nav.push<NotImplementedView>(); } }, // SIGFRXView
-                { "LoRa", 		ui::Color::dark_grey(),	&bitmap_icon_lora,		[&nav](){ nav.push<NotImplementedView>(); } },
-                { "SSTV", 		ui::Color::dark_grey(), &bitmap_icon_sstv,		[&nav](){ nav.push<NotImplementedView>(); } },
-                { "TETRA", 		ui::Color::dark_grey(),	&bitmap_icon_tetra,		[&nav](){ nav.push<NotImplementedView>(); } },*/
+                { "DMR", 		Color::dark_grey(),	&bitmap_icon_dmr,		[&nav](){ nav.push<NotImplementedView>(); } },
+                { "SIGFOX", 	Color::dark_grey(),	&bitmap_icon_fox,		[&nav](){ nav.push<NotImplementedView>(); } }, // SIGFRXView
+                { "LoRa", 		Color::dark_grey(),	&bitmap_icon_lora,		[&nav](){ nav.push<NotImplementedView>(); } },
+                { "SSTV", 		Color::dark_grey(), &bitmap_icon_sstv,		[&nav](){ nav.push<NotImplementedView>(); } },
+                { "TETRA", 		Color::dark_grey(),	&bitmap_icon_tetra,		[&nav](){ nav.push<NotImplementedView>(); } },*/
     });
 
     // set_highlighted(0);		// Default selection is "Audio"
@@ -542,14 +526,14 @@ ReceiversMenuView::ReceiversMenuView(NavigationView& nav) {
 /* TransmittersMenuView **************************************************/
 
 TransmittersMenuView::TransmittersMenuView(NavigationView& nav) {
-    if (portapack::persistent_memory::show_gui_return_icon()) {
-        add_items({{"..", ui::Color::light_grey(), &bitmap_icon_previous, [&nav]() { nav.pop(); }}});
+    if (pmem::show_gui_return_icon()) {
+        add_items({{"..", Color::light_grey(), &bitmap_icon_previous, [&nav]() { nav.pop(); }}});
     }
     add_items({
-        {"ADS-B [S]", ui::Color::yellow(), &bitmap_icon_adsb, [&nav]() { nav.push<ADSBTxView>(); }},
+        {"ADS-B [S]", ui::Color::green(), &bitmap_icon_adsb, [&nav]() { nav.push<ADSBTxView>(); }},
         {"APRS", ui::Color::green(), &bitmap_icon_aprs, [&nav]() { nav.push<APRSTXView>(); }},
         {"BHT Xy/EP", ui::Color::green(), &bitmap_icon_bht, [&nav]() { nav.push<BHTView>(); }},
-        {"GPS Sim", ui::Color::yellow(), &bitmap_icon_gps_sim, [&nav]() { nav.push<GpsSimAppView>(); }},
+        {"GPS Sim", ui::Color::green(), &bitmap_icon_gps_sim, [&nav]() { nav.push<GpsSimAppView>(); }},
         {"Jammer", ui::Color::green(), &bitmap_icon_jammer, [&nav]() { nav.push<JammerView>(); }},
         //{ "Key fob",		ui::Color::orange(),	&bitmap_icon_keyfob,	[&nav](){ nav.push<KeyfobView>(); } },
         {"LGE tool", ui::Color::yellow(), &bitmap_icon_lge, [&nav]() { nav.push<LGEView>(); }},
@@ -562,9 +546,9 @@ TransmittersMenuView::TransmittersMenuView(NavigationView& nav) {
         {"Soundbrd", ui::Color::green(), &bitmap_icon_soundboard, [&nav]() { nav.push<SoundBoardView>(); }},
         {"SSTV", ui::Color::green(), &bitmap_icon_sstv, [&nav]() { nav.push<SSTVTXView>(); }},
         {"TEDI/LCR", ui::Color::yellow(), &bitmap_icon_lcr, [&nav]() { nav.push<LCRView>(); }},
-        {"TouchTune", ui::Color::yellow(), &bitmap_icon_remote, [&nav]() { nav.push<TouchTunesView>(); }},
-        {"Playlist", ui::Color::yellow(), &bitmap_icon_remote, [&nav]() { nav.push<PlaylistView>(); }},
-        {"S.Painter", ui::Color::orange(), &bitmap_icon_morse, [&nav]() { nav.push<SpectrumPainterView>(); }},
+        {"TouchTune", ui::Color::green(), &bitmap_icon_touchtunes, [&nav]() { nav.push<TouchTunesView>(); }},
+        //{"Playlist", ui::Color::green(), &bitmap_icon_scanner, [&nav]() { nav.push<PlaylistView>(); }},
+        {"S.Painter", ui::Color::orange(), &bitmap_icon_paint, [&nav]() { nav.push<SpectrumPainterView>(); }},
         //{ "Remote",			ui::Color::dark_grey(),	&bitmap_icon_remote,	[&nav](){ nav.push<RemoteView>(); } },
     });
 }
@@ -572,22 +556,22 @@ TransmittersMenuView::TransmittersMenuView(NavigationView& nav) {
 /* UtilitiesMenuView *****************************************************/
 
 UtilitiesMenuView::UtilitiesMenuView(NavigationView& nav) {
-    if (portapack::persistent_memory::show_gui_return_icon()) {
-        add_items({{"..", ui::Color::light_grey(), &bitmap_icon_previous, [&nav]() { nav.pop(); }}});
+    if (pmem::show_gui_return_icon()) {
+        add_items({{"..", Color::light_grey(), &bitmap_icon_previous, [&nav]() { nav.pop(); }}});
     }
     add_items({
-        //{ "Test app", 		ui::Color::dark_grey(),	nullptr,				[&nav](){ nav.push<TestView>(); } },
-        {"Freq. manager", ui::Color::green(), &bitmap_icon_freqman, [&nav]() { nav.push<FrequencyManagerView>(); }},
-        {"File manager", ui::Color::yellow(), &bitmap_icon_dir, [&nav]() { nav.push<FileManagerView>(); }},
-        {"Notepad", ui::Color::dark_cyan(), &bitmap_icon_notepad, [&nav]() { nav.push<TextEditorView>(); }},
-        {"Signal gen", ui::Color::green(), &bitmap_icon_cwgen, [&nav]() { nav.push<SigGenView>(); }},
-        //{ "Tone search",	ui::Color::dark_grey(), nullptr,					[&nav](){ nav.push<ToneSearchView>(); } },
-        {"Wav viewer", ui::Color::yellow(), &bitmap_icon_soundboard, [&nav]() { nav.push<ViewWavView>(); }},
-        {"Antenna length", ui::Color::green(), &bitmap_icon_tools_antenna, [&nav]() { nav.push<WhipCalcView>(); }},
+        //{ "Test app", 		Color::dark_grey(),	nullptr,				[&nav](){ nav.push<TestView>(); } },
+        {"Freq. manager", Color::green(), &bitmap_icon_freqman, [&nav]() { nav.push<FrequencyManagerView>(); }},
+        {"File manager", Color::green(), &bitmap_icon_dir, [&nav]() { nav.push<FileManagerView>(); }},
+        {"Notepad", Color::dark_cyan(), &bitmap_icon_notepad, [&nav]() { nav.push<TextEditorView>(); }},
+        {"Signal gen", Color::green(), &bitmap_icon_cwgen, [&nav]() { nav.push<SigGenView>(); }},
+        //{ "Tone search",	Color::dark_grey(), nullptr,					[&nav](){ nav.push<ToneSearchView>(); } },
+        {"Wav viewer", Color::yellow(), &bitmap_icon_soundboard, [&nav]() { nav.push<ViewWavView>(); }},
+        {"Antenna length", Color::green(), &bitmap_icon_tools_antenna, [&nav]() { nav.push<WhipCalcView>(); }},
 
-        {"Wipe SD card", ui::Color::red(), &bitmap_icon_tools_wipesd, [&nav]() { nav.push<WipeSDView>(); }},
-        {"Flash Utility", ui::Color::red(), &bitmap_icon_temperature, [&nav]() { nav.push<FlashUtilityView>(); }},
-        {"SD over USB", ui::Color::yellow(), &bitmap_icon_hackrf, [&nav]() { nav.push<SdOverUsbView>(); }},
+        {"Wipe SD card", Color::red(), &bitmap_icon_tools_wipesd, [&nav]() { nav.push<WipeSDView>(); }},
+        {"Flash Utility", Color::red(), &bitmap_icon_temperature, [&nav]() { nav.push<FlashUtilityView>(); }},
+        {"SD over USB", Color::yellow(), &bitmap_icon_hackrf, [&nav]() { nav.push<SdOverUsbView>(); }},
     });
     set_max_rows(2);  // allow wider buttons
 }
@@ -605,20 +589,20 @@ void SystemMenuView::hackrf_mode(NavigationView& nav) {
 
 SystemMenuView::SystemMenuView(NavigationView& nav) {
     add_items({
-        //{ "Play dead",				ui::Color::red(),		&bitmap_icon_playdead,	[&nav](){ nav.push<PlayDeadView>(); } },
-        {"Receive", ui::Color::cyan(), &bitmap_icon_receivers, [&nav]() { nav.push<ReceiversMenuView>(); }},
-        {"Transmit", ui::Color::cyan(), &bitmap_icon_transmit, [&nav]() { nav.push<TransmittersMenuView>(); }},
-        {"Capture", ui::Color::red(), &bitmap_icon_capture, [&nav]() { nav.push<CaptureAppView>(); }},
-        {"Replay", ui::Color::green(), &bitmap_icon_replay, [&nav]() { nav.push<ReplayAppView>(); }},
-        {"Search", ui::Color::yellow(), &bitmap_icon_search, [&nav]() { nav.push<SearchView>(); }},
-        {"Scanner", ui::Color::yellow(), &bitmap_icon_scanner, [&nav]() { nav.push<ScannerView>(); }},
-        {"Microphone", ui::Color::yellow(), &bitmap_icon_microphone, [&nav]() { nav.push<MicTXView>(); }},
-        {"Looking Glass", ui::Color::yellow(), &bitmap_icon_looking, [&nav]() { nav.push<GlassView>(); }},
-        {"Utilities", ui::Color::cyan(), &bitmap_icon_utilities, [&nav]() { nav.push<UtilitiesMenuView>(); }},
-        {"Settings", ui::Color::cyan(), &bitmap_icon_setup, [&nav]() { nav.push<SettingsMenuView>(); }},
-        {"Debug", ui::Color::light_grey(), &bitmap_icon_debug, [&nav]() { nav.push<DebugMenuView>(); }},
-        {"HackRF", ui::Color::cyan(), &bitmap_icon_hackrf, [this, &nav]() { hackrf_mode(nav); }},
-        //{ "About", 		ui::Color::cyan(),			nullptr,				[&nav](){ nav.push<AboutView>(); } }
+        //{ "Play dead",				Color::red(),		&bitmap_icon_playdead,	[&nav](){ nav.push<PlayDeadView>(); } },
+        {"Receive", Color::cyan(), &bitmap_icon_receivers, [&nav]() { nav.push<ReceiversMenuView>(); }},
+        {"Transmit", Color::cyan(), &bitmap_icon_transmit, [&nav]() { nav.push<TransmittersMenuView>(); }},
+        {"Capture", Color::red(), &bitmap_icon_capture, [&nav]() { nav.push<CaptureAppView>(); }},
+        {"Replay", Color::green(), &bitmap_icon_replay, [&nav]() { nav.push<PlaylistView>(); }},
+        {"Search", Color::yellow(), &bitmap_icon_search, [&nav]() { nav.push<SearchView>(); }},
+        {"Scanner", Color::green(), &bitmap_icon_scanner, [&nav]() { nav.push<ScannerView>(); }},
+        {"Microphone", Color::green(), &bitmap_icon_microphone, [&nav]() { nav.push<MicTXView>(); }},
+        {"Looking Glass", Color::green(), &bitmap_icon_looking, [&nav]() { nav.push<GlassView>(); }},
+        {"Utilities", Color::cyan(), &bitmap_icon_utilities, [&nav]() { nav.push<UtilitiesMenuView>(); }},
+        {"Settings", Color::cyan(), &bitmap_icon_setup, [&nav]() { nav.push<SettingsMenuView>(); }},
+        {"Debug", Color::light_grey(), &bitmap_icon_debug, [&nav]() { nav.push<DebugMenuView>(); }},
+        {"HackRF", Color::cyan(), &bitmap_icon_hackrf, [this, &nav]() { hackrf_mode(nav); }},
+        //{ "About", 		Color::cyan(),			nullptr,				[&nav](){ nav.push<AboutView>(); } }
     });
     set_max_rows(2);  // allow wider buttons
     set_arrow_enabled(false);
@@ -627,20 +611,15 @@ SystemMenuView::SystemMenuView(NavigationView& nav) {
 
 /* SystemView ************************************************************/
 
-static constexpr ui::Style style_default{
-    .font = ui::font::fixed_8x16,
-    .background = ui::Color::black(),
-    .foreground = ui::Color::white()};
-
 SystemView::SystemView(
     Context& context,
     const Rect parent_rect)
     : View{parent_rect},
       context_(context) {
-    set_style(&style_default);
+    set_style(&Styles::white);
 
-    constexpr ui::Dim status_view_height = 16;
-    constexpr ui::Dim info_view_height = 16;
+    constexpr Dim status_view_height = 16;
+    constexpr Dim info_view_height = 16;
 
     add_child(&status_view);
     status_view.set_parent_rect({{0, 0},
@@ -651,7 +630,7 @@ SystemView::SystemView(
 
     add_child(&navigation_view);
     navigation_view.set_parent_rect({{0, status_view_height},
-                                     {parent_rect.width(), static_cast<ui::Dim>(parent_rect.height() - status_view_height)}});
+                                     {parent_rect.width(), static_cast<Dim>(parent_rect.height() - status_view_height)}});
 
     add_child(&info_view);
     info_view.set_parent_rect({{0, 19 * 16},
@@ -671,24 +650,17 @@ SystemView::SystemView(
         this->status_view.set_dirty();
     };
 
-    // portapack::persistent_memory::set_playdead_sequence(0x8D1);
+    // pmem::set_playdead_sequence(0x8D1);
 
     // Initial view
-    /*if ((portapack::persistent_memory::playing_dead() == 0x5920C1DF) ||		// Enable code
-                (portapack::persistent_memory::ui_config() & 16)) {					// Login option
+    /*if ((pmem::playing_dead() == 0x5920C1DF) ||		// Enable code
+                (pmem::ui_config() & 16)) {					// Login option
                 navigation_view.push<PlayDeadView>();
         } else {*/
 
     navigation_view.push<SystemMenuView>();
 
-    File pmem_flag_file_handle;
-    std::string pmem_flag_file = "/SETTINGS/PMEM_FILEFLAG";
-    auto result = pmem_flag_file_handle.open(pmem_flag_file);
-    if (!result.is_valid()) {
-        portapack::persistent_memory::load_persistent_settings_from_file("SETTINGS/pmem_settings");
-    }
-
-    if (portapack::persistent_memory::config_splash()) {
+    if (pmem::config_splash()) {
         navigation_view.push<BMPView>();
     }
     status_view.set_back_enabled(false);
@@ -705,20 +677,27 @@ Context& SystemView::context() const {
 }
 
 void SystemView::toggle_overlay() {
-    if (overlay_active) {
-        this->remove_child(&this->overlay);
-        this->set_dirty();
-        shared_memory.request_m4_performance_counter = 0;
-    } else {
-        this->add_child(&this->overlay);
-        this->set_dirty();
-        shared_memory.request_m4_performance_counter = 1;
-        shared_memory.m4_cpu_usage = 0;
-        shared_memory.m4_heap_usage = 0;
-        shared_memory.m4_stack_usage = 0;
+    switch (++overlay_active) {
+        case 1:
+            this->add_child(&this->overlay);
+            this->set_dirty();
+            shared_memory.request_m4_performance_counter = 1;
+            shared_memory.m4_cpu_usage = 0;
+            shared_memory.m4_heap_usage = 0;
+            shared_memory.m4_stack_usage = 0;
+            break;
+        case 2:
+            this->remove_child(&this->overlay);
+            this->add_child(&this->overlay2);
+            this->set_dirty();
+            shared_memory.request_m4_performance_counter = 0;
+            break;
+        case 3:
+            this->remove_child(&this->overlay2);
+            this->set_dirty();
+            overlay_active = 0;
+            break;
     }
-
-    overlay_active = !overlay_active;
 }
 
 void SystemView::paint_overlay() {
@@ -729,7 +708,10 @@ void SystemView::paint_overlay() {
             return;
 
         last_paint_state = !last_paint_state;
-        this->overlay.set_dirty();
+        if (overlay_active == 1)
+            this->overlay.set_dirty();
+        else
+            this->overlay2.set_dirty();
     }
 }
 
@@ -748,7 +730,7 @@ BMPView::BMPView(NavigationView& nav) {
 }
 
 void BMPView::paint(Painter&) {
-    if (!portapack::display.drawBMP2({0, 0}, "splash.bmp"))
+    if (!portapack::display.drawBMP2({0, 0}, splash_dot_bmp))
         portapack::display.drawBMP({(240 - 230) / 2, (320 - 50) / 2 - 10}, splash_bmp, false);
 }
 

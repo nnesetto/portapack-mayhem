@@ -23,7 +23,9 @@
 #define __STRING_FORMAT_H__
 
 #include <cstdint>
+#include <array>
 #include <string>
+#include <string_view>
 
 #include "file.hpp"
 
@@ -39,10 +41,19 @@ enum TimeFormat {
 
 const char unit_prefix[7]{'n', 'u', 'm', 0, 'k', 'M', 'G'};
 
+using StringFormatBuffer = std::array<char, 24>;
+
+/* Integer conversion without memory allocations. */
+char* to_string_dec_int(int64_t n, StringFormatBuffer& buffer, size_t& length);
+char* to_string_dec_uint(uint64_t n, StringFormatBuffer& buffer, size_t& length);
+
+std::string to_string_dec_int(int64_t n);
+std::string to_string_dec_uint(uint64_t n);
+
 // TODO: Allow l=0 to not fill/justify? Already using this way in ui_spectrum.hpp...
 std::string to_string_bin(const uint32_t n, const uint8_t l = 0);
-std::string to_string_dec_uint(const uint32_t n, const int32_t l = 0, const char fill = ' ');
-std::string to_string_dec_int(const int32_t n, const int32_t l = 0, const char fill = 0);
+std::string to_string_dec_uint(const uint32_t n, const int32_t l, const char fill = ' ');
+std::string to_string_dec_int(const int32_t n, const int32_t l, const char fill = 0);
 std::string to_string_decimal(float decimal, int8_t precision);
 
 std::string to_string_hex(const uint64_t n, const int32_t l = 0);
@@ -50,6 +61,7 @@ std::string to_string_hex_array(uint8_t* const array, const int32_t l = 0);
 
 std::string to_string_freq(const uint64_t f);
 std::string to_string_short_freq(const uint64_t f);
+std::string to_string_rounded_freq(const uint64_t f, int8_t precision);
 std::string to_string_time_ms(const uint32_t ms);
 
 std::string to_string_datetime(const rtc::RTC& value, const TimeFormat format = YMDHMS);
@@ -60,10 +72,10 @@ std::string to_string_FAT_timestamp(const FATTimestamp& timestamp);
 std::string to_string_file_size(uint32_t file_size);
 
 std::string unit_auto_scale(double n, const uint32_t base_nano, uint32_t precision);
-double get_decimals(double num, int16_t mult, bool round = false);  // euquiq added
+double get_decimals(double num, int16_t mult, bool round = false);
 
-std::string trim(const std::string& str);  // Remove whitespace at ends.
-std::string trimr(std::string str);        // Remove trailing spaces
-std::string truncate(const std::string& str, size_t length);
+std::string trim(std::string_view str);   // Remove whitespace at ends.
+std::string trimr(std::string_view str);  // Remove trailing spaces
+std::string truncate(std::string_view, size_t length);
 
 #endif /*__STRING_FORMAT_H__*/

@@ -27,7 +27,6 @@
 #include "ui_widget.hpp"
 #include "ui_receiver.hpp"
 #include "ui_navigation.hpp"
-#include "ui_font_fixed_8x16.hpp"
 #include "rtc_time.hpp"
 #include "clock_manager.hpp"
 #include "baseband_api.hpp"
@@ -35,6 +34,7 @@
 #include "message.hpp"
 #include "file.hpp"
 #include "io_wave.hpp"
+#include "radio_state.hpp"
 
 namespace ui {
 
@@ -55,6 +55,11 @@ class NumbersStationView : public View {
    private:
     NavigationView& nav_;
 
+    TxRadioState radio_state_{
+        1750000 /* bandwidth */,
+        1536000 /* sampling rate */
+    };
+
     // Sequencing state machine
     enum segments {
         IDLE = 0,
@@ -62,11 +67,6 @@ class NumbersStationView : public View {
         MESSAGE,
         SIGNOFF
     };
-
-    Style style_red{
-        .font = font::fixed_8x16,
-        .background = Color::black(),
-        .foreground = Color::red()};
 
     typedef struct {
         char code;

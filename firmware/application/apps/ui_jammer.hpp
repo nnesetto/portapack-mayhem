@@ -22,13 +22,14 @@
 
 #include "ui.hpp"
 #include "ui_widget.hpp"
-#include "ui_font_fixed_8x16.hpp"
+#include "ui_styles.hpp"
 #include "ui_navigation.hpp"
 #include "ui_tabview.hpp"
 #include "transmitter_model.hpp"
 #include "message.hpp"
 #include "jammer.hpp"
 #include "lfsr_random.hpp"
+#include "radio_state.hpp"
 
 using namespace jammer;
 
@@ -52,11 +53,7 @@ class RangeView : public View {
     uint32_t width{};
     rf::Frequency center{};
 
-    static constexpr Style style_info{
-        .font = font::fixed_8x16,
-        .background = Color::black(),
-        .foreground = Color::grey(),
-    };
+    const Style& style_info = Styles::grey;
 
     Labels labels{
         {{2 * 8, 8 * 8 + 4}, "Start", Color::light_grey()},
@@ -103,6 +100,10 @@ class JammerView : public View {
 
    private:
     NavigationView& nav_;
+    TxRadioState radio_state_{
+        3500000 /* bandwidth */,
+        3072000 /* sampling rate */
+    };
 
     void start_tx();
     void on_timer();
@@ -117,16 +118,8 @@ class JammerView : public View {
     int16_t mscounter = 0;   // euquiq: Internal ms counter for do_timer()
     lfsr_word_t lfsr_v = 1;  // euquiq: Used to generate "random" Jitter
 
-    static constexpr Style style_val{
-        .font = font::fixed_8x16,
-        .background = Color::black(),
-        .foreground = Color::green(),
-    };
-    static constexpr Style style_cancel{
-        .font = font::fixed_8x16,
-        .background = Color::black(),
-        .foreground = Color::red(),
-    };
+    const Style& style_val = Styles::green;
+    const Style& style_cancel = Styles::red;
 
     RangeView view_range_a{nav_};
     RangeView view_range_b{nav_};

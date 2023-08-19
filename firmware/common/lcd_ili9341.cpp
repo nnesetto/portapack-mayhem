@@ -412,7 +412,7 @@ void ILI9341::drawBMP(const ui::Point p, const uint8_t* bitmap, const bool trans
                 24bpp RGB
                 32bpp ARGB
 */
-bool ILI9341::drawBMP2(const ui::Point p, const std::string file) {
+bool ILI9341::drawBMP2(const ui::Point p, const std::filesystem::path& file) {
     File bmpimage;
     size_t file_pos = 0;
     uint16_t pointer = 0;
@@ -455,6 +455,9 @@ bool ILI9341::drawBMP2(const ui::Point p, const std::string file) {
 
     width = bmp_header.width;
     height = bmp_header.height;
+
+    if (width != 240)
+        return false;
 
     file_pos = bmp_header.image_data;
 

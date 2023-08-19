@@ -24,14 +24,15 @@
 #include "ui_widget.hpp"
 #include "ui_painter.hpp"
 #include "ui_menu.hpp"
+#include "ui_styles.hpp"
 #include "ui_navigation.hpp"
-#include "ui_font_fixed_8x16.hpp"
 #include "clock_manager.hpp"
 #include "message.hpp"
 #include "rf_path.hpp"
 #include "max2837.hpp"
 #include "volume.hpp"
 #include "receiver_model.hpp"
+#include "radio_state.hpp"
 
 namespace ui {
 
@@ -50,10 +51,7 @@ class SIGFRXView : public View {
     uint8_t last_channel;
     uint8_t detect_counter = 0;
 
-    const Style style_white{
-        .font = font::fixed_8x16,
-        .background = Color::white(),
-        .foreground = Color::black()};
+    RxRadioState radio_state_{};
 
     const uint16_t sigfrx_marks[18] = {
         10, 8, 0,

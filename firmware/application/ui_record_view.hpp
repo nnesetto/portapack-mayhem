@@ -40,6 +40,7 @@ class RecordView : public View {
     std::function<void(std::string)> on_error{};
 
     enum FileType {
+        RawS8 = 1,
         RawS16 = 2,
         WAV = 3,
     };
@@ -55,7 +56,13 @@ class RecordView : public View {
 
     void focus() override;
 
-    void set_sampling_rate(const size_t new_sampling_rate);
+    /* Sets the sampling rate for the baseband.
+     * NB: Do not pre-apply any oversampling. This function will determine
+     * the correct amount of oversampling and return the actual sample rate
+     * that can be used to configure the radio or other UI element. */
+    uint32_t set_sampling_rate(uint32_t new_sampling_rate);
+
+    void set_file_type(const FileType v) { file_type = v; }
 
     void start();
     void stop();
@@ -68,13 +75,14 @@ class RecordView : public View {
    private:
     void toggle();
     // void toggle_pitch_rssi();
-    Optional<File::Error> write_metadata_file(const std::filesystem::path& filename);
 
     void on_tick_second();
     void update_status_display();
 
     void handle_capture_thread_done(const File::Error error);
     void handle_error(const File::Error error);
+
+    OversampleRate get_oversample_rate(uint32_t sample_rate);
 
     // bool pitch_rssi_enabled = false;
 
@@ -84,10 +92,10 @@ class RecordView : public View {
 
     const std::filesystem::path filename_stem_pattern;
     const std::filesystem::path folder;
-    const FileType file_type;
+    FileType file_type;
     const size_t write_size;
     const size_t buffer_count;
-    size_t sampling_rate{0};
+    uint32_t sampling_rate{0};
     SignalToken signal_token_tick_second{};
 
     Rectangle rect_background{

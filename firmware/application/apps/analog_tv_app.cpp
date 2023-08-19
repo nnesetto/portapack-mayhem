@@ -41,6 +41,8 @@ namespace ui {
 
 /* AnalogTvView *******************************************************/
 
+static const Style& style_options_group_new = Styles::bg_blue;
+
 AnalogTvView::AnalogTvView(
     NavigationView& nav)
     : nav_(nav) {
@@ -53,31 +55,6 @@ AnalogTvView::AnalogTvView(
                   &options_modulation,
                   &field_volume,
                   &tv});
-
-    // Set on_change before initialising the field
-    field_frequency.on_change = [this](rf::Frequency f) {
-        this->on_tuning_frequency_changed(f);
-    };
-
-    // load app settings
-    auto rc = settings.load("rx_tv", &app_settings);
-    if (rc == SETTINGS_OK) {
-        field_lna.set_value(app_settings.lna);
-        field_vga.set_value(app_settings.vga);
-        receiver_model.set_rf_amp(app_settings.rx_amp);
-        field_frequency.set_value(app_settings.rx_frequency);
-    } else
-        field_frequency.set_value(receiver_model.tuning_frequency());
-
-    field_frequency.set_step(receiver_model.frequency_step());
-    field_frequency.on_edit = [this, &nav]() {
-        // TODO: Provide separate modal method/scheme?
-        auto new_view = nav.push<FrequencyKeypadView>(receiver_model.tuning_frequency());
-        new_view->on_changed = [this](rf::Frequency f) {
-            this->on_tuning_frequency_changed(f);
-            this->field_frequency.set_value(f);
-        };
-    };
 
     field_frequency.on_show_options = [this]() {
         this->on_show_options_frequency();
@@ -100,13 +77,8 @@ AnalogTvView::AnalogTvView(
         this->on_show_options_modulation();
     };
 
-    field_volume.set_value(0);
-    field_volume.on_change = [this](int32_t v) {
-        this->on_headphone_volume_changed(v);
-    };
-
     tv.on_select = [this](int32_t offset) {
-        field_frequency.set_value(receiver_model.tuning_frequency() + offset);
+        field_frequency.set_value(receiver_model.target_frequency() + offset);
     };
 
     update_modulation(static_cast<ReceiverModel::Mode>(modulation));
@@ -114,12 +86,6 @@ AnalogTvView::AnalogTvView(
 }
 
 AnalogTvView::~AnalogTvView() {
-    // save app settings
-    app_settings.rx_frequency = field_frequency.value();
-    settings.save("rx_tv", &app_settings);
-
-    // TODO: Manipulating audio codec here, and in ui_receiver.cpp. Good to do
-    // both?
     audio::output::stop();
     receiver_model.disable();
     baseband::shutdown();
@@ -141,10 +107,6 @@ void AnalogTvView::set_parent_rect(const Rect new_parent_rect) {
 
 void AnalogTvView::focus() {
     field_frequency.focus();
-}
-
-void AnalogTvView::on_tuning_frequency_changed(rf::Frequency f) {
-    receiver_model.set_tuning_frequency(f);
 }
 
 void AnalogTvView::on_baseband_bandwidth_changed(uint32_t bandwidth_hz) {
@@ -223,11 +185,6 @@ void AnalogTvView::on_frequency_step_changed(rf::Frequency f) {
 
 void AnalogTvView::on_reference_ppm_correction_changed(int32_t v) {
     persistent_memory::set_correction_ppb(v * 1000);
-}
-
-void AnalogTvView::on_headphone_volume_changed(int32_t v) {
-    (void)v;  // avoid warning
-              // tv::TVView::set_headphone_volume(this,v);
 }
 
 void AnalogTvView::update_modulation(const ReceiverModel::Mode modulation) {

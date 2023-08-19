@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2015 Jared Boone, ShareBrained Technology, Inc.
  * Copyright (C) 2016 Furrtek
+ * Copyright (C) 2023 gullradriel, Nilorea Studio Inc.
  *
  * This file is part of PortaPack.
  *
@@ -26,6 +27,7 @@
 #include "ui_widget.hpp"
 #include "ui_menu.hpp"
 #include "ui_navigation.hpp"
+#include "bitmap.hpp"
 #include "ff.h"
 #include "portapack_persistent_memory.hpp"
 
@@ -33,7 +35,7 @@
 
 namespace ui {
 
-#define MAX_FREQ_CORRECTION 4294967295  // maximum possible for an uint32_t
+#define MAX_FREQ_CORRECTION INT32_MAX
 
 struct SetDateTimeModel {
     uint16_t year;
@@ -126,11 +128,6 @@ class SetRadioView : public View {
     std::string title() const override { return "Radio"; };
 
    private:
-    const Style style_text{
-        .font = font::fixed_8x16,
-        .background = Color::black(),
-        .foreground = Color::light_grey(),
-    };
     uint8_t freq_step_khz = 3;
 
     Text label_source{
@@ -212,21 +209,16 @@ class SetUIView : public View {
 
    private:
     Checkbox checkbox_disable_touchscreen{
-        {3 * 8, 2 * 16},
+        {3 * 8, 1 * 16},
         20,
         "Disable touchscreen"};
 
-    Checkbox checkbox_speaker{
-        {3 * 8, 4 * 16},
-        20,
-        "Hide H1 Speaker option"};
-
     Checkbox checkbox_bloff{
-        {3 * 8, 6 * 16},
+        {3 * 8, 3 * 16},
         20,
         "Backlight off after:"};
     OptionsField options_bloff{
-        {52, 7 * 16 + 8},
+        {60, 4 * 16 + 8},
         20,
         {
             {"5 seconds", backlight_timeout_t::Timeout5Sec},
@@ -240,25 +232,65 @@ class SetUIView : public View {
         }};
 
     Checkbox checkbox_showsplash{
-        {3 * 8, 9 * 16},
+        {3 * 8, 6 * 16},
         20,
         "Show splash"};
 
     Checkbox checkbox_showclock{
-        {3 * 8, 11 * 16},
+        {3 * 8, 8 * 16},
         20,
         "Show clock with:"};
 
     OptionsField options_clockformat{
-        {52, 12 * 16 + 8},
+        {60, 9 * 16 + 8},
         20,
         {{"time only", 0},
          {"time and date", 1}}};
 
     Checkbox checkbox_guireturnflag{
-        {3 * 8, 14 * 16},
-        25,
-        "add return icon in GUI"};
+        {3 * 8, 11 * 16},
+        20,
+        "Back button in menu"};
+
+    Labels labels{
+        {{3 * 8, 13 * 16}, "Show/Hide Status Icons", Color::light_grey()},
+    };
+
+    ImageToggle toggle_camera{
+        {7 * 8, 14 * 16 + 2, 16, 16},
+        &bitmap_icon_camera};
+
+    ImageToggle toggle_sleep{
+        {9 * 8, 14 * 16 + 2, 16, 16},
+        &bitmap_icon_sleep};
+
+    ImageToggle toggle_stealth{
+        {11 * 8, 14 * 16 + 2, 16, 16},
+        &bitmap_icon_stealth};
+
+    ImageToggle toggle_converter{
+        {13 * 8, 14 * 16 + 2, 16, 16},
+        &bitmap_icon_upconvert};
+
+    ImageToggle toggle_bias_tee{
+        {15 * 8, 14 * 16 + 2, 16, 16},
+        &bitmap_icon_biast_off};
+
+    ImageToggle toggle_clock{
+        {17 * 8, 14 * 16 + 2, 8, 16},
+        &bitmap_icon_clk_ext};
+
+    ImageToggle toggle_mute{
+        {18 * 8, 14 * 16 + 2, 16, 16},
+        &bitmap_icon_speaker_and_headphones_mute};
+
+    ImageToggle toggle_speaker{
+        {20 * 8, 14 * 16 + 2, 16, 16},
+        &bitmap_icon_speaker_mute};
+
+    ImageToggle toggle_sd_card{
+        {22 * 8, 14 * 16 + 2, 16, 16},
+        &bitmap_sd_card_ok};
 
     Button button_save{
         {2 * 8, 16 * 16, 12 * 8, 32},
@@ -431,6 +463,38 @@ class SetQRCodeView : public View {
     };
 };
 
+using portapack::persistent_memory::encoder_dial_sensitivity;
+
+class SetEncoderDialView : public View {
+   public:
+    SetEncoderDialView(NavigationView& nav);
+
+    void focus() override;
+
+    std::string title() const override { return "Encoder Dial"; };
+
+   private:
+    Labels labels{
+        {{2 * 8, 3 * 16}, "Dial sensitivity:", Color::light_grey()},
+    };
+
+    OptionsField field_encoder_dial_sensitivity{
+        {20 * 8, 3 * 16},
+        6,
+        {{"LOW", encoder_dial_sensitivity::DIAL_SENSITIVITY_LOW},
+         {"NORMAL", encoder_dial_sensitivity::DIAL_SENSITIVITY_NORMAL},
+         {"HIGH", encoder_dial_sensitivity::DIAL_SENSITIVITY_HIGH}}};
+
+    Button button_save{
+        {2 * 8, 16 * 16, 12 * 8, 32},
+        "Save"};
+
+    Button button_cancel{
+        {16 * 8, 16 * 16, 12 * 8, 32},
+        "Cancel",
+    };
+};
+
 class SetPersistentMemoryView : public View {
    public:
     SetPersistentMemoryView(NavigationView& nav);
@@ -442,7 +506,7 @@ class SetPersistentMemoryView : public View {
    private:
     Text text_pmem_about{
         {0, 1 * 16, 240, 16},
-        "PersistentMemory from/to SD"};
+        "Persistent Memory from/to SD"};
 
     Text text_pmem_informations{
         {0, 2 * 16, 240, 16},
@@ -452,10 +516,10 @@ class SetPersistentMemoryView : public View {
         {0, 3 * 16, 240, 16},
         ""};
 
-    Checkbox check_load_mem_at_startup{
+    Checkbox check_use_sdcard_for_pmem{
         {18, 6 * 16},
         19,
-        "load from sd at startup"};
+        "use sdcard for p.mem"};
 
     Button button_save_mem_to_file{
         {0, 8 * 16, 240, 32},

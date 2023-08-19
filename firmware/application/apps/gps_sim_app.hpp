@@ -27,15 +27,18 @@
 #define SHORT_UI true
 #define NORMAL_UI false
 
+#include "app_settings.hpp"
+#include "radio_state.hpp"
 #include "ui_widget.hpp"
 #include "ui_navigation.hpp"
 #include "ui_receiver.hpp"
+#include "ui_freq_field.hpp"
 #include "replay_thread.hpp"
 #include "ui_spectrum.hpp"
+#include "ui_transmitter.hpp"
 
 #include <string>
 #include <memory>
-#include "ui_transmitter.hpp"
 
 namespace ui {
 
@@ -51,23 +54,26 @@ class GpsSimAppView : public View {
     std::string title() const override { return "GPS Sim TX"; };
 
    private:
+    static constexpr uint32_t initial_target_frequency = 1575420000;
+
     NavigationView& nav_;
+    RxRadioState radio_state_{
+        3000000 /* bandwidth */,
+        500000 /* sampling rate */
+    };
+    app_settings::SettingsManager settings_{
+        "tx_gps", app_settings::Mode::TX};
 
     static constexpr ui::Dim header_height = 3 * 16;
 
-    uint32_t sample_rate = 0;
     int32_t tx_gain{47};
     bool rf_amp{true};                                       // aux private var to store temporal, same as Replay App rf_amp user selection.
     static constexpr uint32_t baseband_bandwidth = 3000000;  // filter bandwidth
     const size_t read_size{16384};
     const size_t buffer_count{3};
 
-    void on_file_changed(std::filesystem::path new_file_path);
-    void on_target_frequency_changed(rf::Frequency f);
+    void on_file_changed(const std::filesystem::path& new_file_path);
     void on_tx_progress(const uint32_t progress);
-
-    void set_target_frequency(const rf::Frequency new_value);
-    rf::Frequency target_frequency() const;
 
     void toggle();
     void start();
@@ -98,9 +104,9 @@ class GpsSimAppView : public View {
     ProgressBar progressbar{
         {18 * 8, 1 * 16, 12 * 8, 16}};
 
-    FrequencyField field_frequency{
+    TxFrequencyField field_frequency{
         {0 * 8, 2 * 16},
-    };
+        nav_};
 
     TransmitterView2 tx_view{
         // new handling of NumberField field_rfgain, NumberField field_rfamp
@@ -119,7 +125,7 @@ class GpsSimAppView : public View {
         Color::green(),
         Color::black()};
 
-    spectrum::WaterfallWidget waterfall{};
+    spectrum::WaterfallView waterfall{};
 
     MessageHandlerRegistration message_handler_replay_thread_error{
         Message::ID::ReplayThreadDone,

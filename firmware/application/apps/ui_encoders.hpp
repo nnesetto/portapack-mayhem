@@ -27,6 +27,7 @@
 #include "encoders.hpp"
 #include "de_bruijn.hpp"
 #include "app_settings.hpp"
+#include "radio_state.hpp"
 
 using namespace encoders;
 
@@ -183,9 +184,12 @@ class EncodersView : public View {
         SCAN
     };
 
-    // app save settings
-    std::app_settings settings{};
-    std::app_settings::AppSettings app_settings{};
+    TxRadioState radio_state_{
+        1750000 /* bandwidth */,
+        OOK_SAMPLERATE /* sampling rate */
+    };
+    app_settings::SettingsManager settings_{
+        "tx_ook", app_settings::Mode::TX};
 
     tx_modes tx_mode = IDLE;
     uint32_t repeat_index{0};
@@ -194,17 +198,6 @@ class EncodersView : public View {
     void update_progress();
     void start_tx(const bool scan);
     void on_tx_progress(const uint32_t progress, const bool done);
-
-    /*const Style style_address {
-                .font = font::fixed_8x16,
-                .background = Color::black(),
-                .foreground = Color::red(),
-        };
-        const Style style_data {
-                .font = font::fixed_8x16,
-                .background = Color::black(),
-                .foreground = Color::blue(),
-        };*/
 
     Rect view_rect = {0, 4 * 8, 240, 168};
 

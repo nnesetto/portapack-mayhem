@@ -23,7 +23,6 @@
 #include "ui_keyfob.hpp"
 
 #include "baseband_api.hpp"
-#include "cpld_update.hpp"
 #include "string_format.hpp"
 
 using namespace portapack;
@@ -141,8 +140,7 @@ KeyfobView::~KeyfobView() {
     settings.save("tx_keyfob", &app_settings);
 
     transmitter_model.disable();
-    hackrf::cpld::load_sram_no_verify();  // to leave all RX ok, without ghost signal problem at the exit .
-    baseband::shutdown();                 // better this function at the end, not load_sram() that sometimes produces hang up.
+    baseband::shutdown();
 }
 
 void KeyfobView::update_progress(const uint32_t progress) {
@@ -190,8 +188,6 @@ void KeyfobView::start_tx() {
 
     size_t bitstream_length = generate_frame();
 
-    transmitter_model.set_sampling_rate(OOK_SAMPLERATE);
-    transmitter_model.set_baseband_bandwidth(1750000);
     transmitter_model.enable();
 
     baseband::set_ook_data(
@@ -236,12 +232,12 @@ KeyfobView::KeyfobView(
 
     options_make.set_selected_index(0);
 
-    transmitter_model.set_tuning_frequency(433920000);  // Fixed 433.92MHz
+    transmitter_model.set_target_frequency(433920000);  // Fixed 433.92MHz
 
     tx_view.on_edit_frequency = [this, &nav]() {
-        auto new_view = nav.push<FrequencyKeypadView>(transmitter_model.tuning_frequency());
+        auto new_view = nav.push<FrequencyKeypadView>(transmitter_model.target_frequency());
         new_view->on_changed = [this](rf::Frequency f) {
-            transmitter_model.set_tuning_frequency(f);
+            transmitter_model.set_target_frequency(f);
         };
     };
 

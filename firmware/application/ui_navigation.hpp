@@ -75,9 +75,11 @@ class NavigationView : public View {
 
     // Pushes a new view under the current on the stack so the current view returns into this new one.
     template <class T, class... Args>
-    void push_under_current(Args&&... args) {
+    T* push_under_current(Args&&... args) {
         auto new_view = std::unique_ptr<View>(new T(*this, std::forward<Args>(args)...));
-        view_stack.insert(view_stack.end() - 1, std::move(new_view));
+        auto new_view_ptr = new_view.get();
+        view_stack.insert(view_stack.end() - 1, ViewState{std::move(new_view), {}});
+        return reinterpret_cast<T*>(new_view_ptr);
     }
 
     template <class T, class... Args>
@@ -97,15 +99,51 @@ class NavigationView : public View {
 
     void focus() override;
 
+    /* Sets the 'on_pop' handler for the current view.
+     * Returns true if the handler was bound successfully. */
+    bool set_on_pop(std::function<void()> on_pop);
+
    private:
-    std::vector<std::unique_ptr<View>> view_stack{};
+    struct ViewState {
+        std::unique_ptr<View> view;
+        std::function<void()> on_pop;
+    };
+
+    std::vector<ViewState> view_stack{};
     Widget* modal_view{nullptr};
 
     Widget* view() const;
 
+    void pop(bool update);
     void free_view();
     void update_view();
     View* push_view(std::unique_ptr<View> new_view);
+};
+
+/* Holds widgets and grows dynamically toward the left.
+ * 16px tall fixed and right-aligns all children in the
+ * order in which they were added. */
+// TODO: Could make this a generic "StackPanel" control.
+class StatusTray : public View {
+   public:
+    StatusTray(Point pos);
+
+    StatusTray(const StatusTray&) = delete;
+    StatusTray& operator=(const StatusTray&) = delete;
+
+    void add_button(ImageButton* child);
+    void add(Widget* child);
+    void update_layout();
+    void clear();
+    void paint(Painter& painter) override;
+    uint8_t width() { return width_; };
+
+   private:
+    static constexpr uint8_t height = 16;
+    // This control grow to the left, so keep
+    // track of the right edge.
+    const Point pos_{};
+    uint8_t width_{};
 };
 
 class SystemStatusView : public View {
@@ -124,7 +162,7 @@ class SystemStatusView : public View {
     NavigationView& nav_;
 
     Rectangle backdrop{
-        {0 * 8, 0 * 16, 240, 16},
+        {0 * 8, 0 * 16, ui::screen_width, 16},
         Color::dark_grey()};
 
     ImageButton button_back{
@@ -144,63 +182,65 @@ class SystemStatusView : public View {
         Color::white(),
         Color::dark_grey()};
 
-    ImageButton button_speaker{
-        {15 * 8, 0, 2 * 8, 1 * 16},
+    StatusTray status_icons{{screen_width, 0}};
+
+    ImageToggle toggle_speaker{
+        {0, 0, 2 * 8, 1 * 16},
         &bitmap_icon_speaker_mute,
+        &bitmap_icon_speaker,
         Color::light_grey(),
+        Color::dark_grey(),
+        Color::green(),
+        Color::dark_grey()};
+
+    ImageToggle toggle_mute{
+        {0, 0, 2 * 8, 1 * 16},
+        &bitmap_icon_speaker_and_headphones_mute,
+        &bitmap_icon_speaker_and_headphones,
+        Color::light_grey(),
+        Color::dark_grey(),
+        Color::green(),
         Color::dark_grey()};
 
     ImageButton button_converter{
-        {17 * 8, 0, 2 * 8, 1 * 16},
+        {0, 0, 2 * 8, 1 * 16},
         &bitmap_icon_upconvert,
         Color::light_grey(),
         Color::dark_grey()};
 
-    ImageButton button_stealth{
-        {19 * 8, 0, 2 * 8, 1 * 16},
-        &bitmap_icon_stealth,
-        Color::light_grey(),
-        Color::dark_grey()};
-
-    /*ImageButton button_textentry {
-                { 170, 0, 2 * 8, 1 * 16 },
-                &bitmap_icon_unistroke,
-                Color::white(),
-                Color::dark_grey()
-        };*/
+    ImageToggle toggle_stealth{
+        {0, 0, 2 * 8, 1 * 16},
+        &bitmap_icon_stealth};
 
     ImageButton button_camera{
-        {21 * 8, 0, 2 * 8, 1 * 16},
+        {0, 0, 2 * 8, 1 * 16},
         &bitmap_icon_camera,
         Color::white(),
         Color::dark_grey()};
 
     ImageButton button_sleep{
-        {23 * 8, 0, 2 * 8, 1 * 16},
+        {0, 0, 2 * 8, 1 * 16},
         &bitmap_icon_sleep,
         Color::white(),
         Color::dark_grey()};
 
     ImageButton button_bias_tee{
-        {25 * 8, 0, 12, 1 * 16},
+        {0, 0, 2 * 8, 1 * 16},
         &bitmap_icon_biast_off,
         Color::light_grey(),
         Color::dark_grey()};
 
     ImageButton button_clock_status{
-        {27 * 8, 0 * 16, 2 * 8, 1 * 16},
+        {0, 0 * 16, 8, 1 * 16},
         &bitmap_icon_clk_int,
         Color::light_grey(),
         Color::dark_grey()};
 
     SDCardStatusView sd_card_status_view{
-        {28 * 8, 0 * 16, 2 * 8, 1 * 16}};
+        {0, 0 * 16, 2 * 8, 1 * 16}};
 
     void on_converter();
-    void on_speaker();
-    void on_stealth();
     void on_bias_tee();
-    // void on_textentry();
     void on_camera();
     void on_title();
     void refresh();
@@ -288,11 +328,12 @@ class SystemView : public View {
     void paint_overlay();
 
    private:
-    bool overlay_active{false};
+    uint8_t overlay_active{0};
 
     SystemStatusView status_view{navigation_view};
     InformationView info_view{navigation_view};
     DfuMenu overlay{navigation_view};
+    DfuMenu2 overlay2{navigation_view};
     NavigationView navigation_view{};
     Context& context_;
 };

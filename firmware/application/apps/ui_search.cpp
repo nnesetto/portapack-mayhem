@@ -117,22 +117,12 @@ void SearchView::do_detection() {
                         recent_entries_view.set_dirty();
 
                         text_infos.set("Locked ! ");
-                        big_display.set_style(&style_locked);
+                        big_display.set_style(&Styles::green);
 
                         locked = true;
                         locked_bin = bin_max;
 
-                        // TODO
-                        /*nav_.pop();
-                                                receiver_model.disable();
-                                                baseband::shutdown();
-                                                nav_.pop();*/
-
-                        /*if (options_goto.selected_index() == 1)
-                                                        nav_.push<AnalogAudioView>(false);
-                                                else if (options_goto.selected_index() == 2)
-                                                        nav_.push<POCSAGAppView>();
-                                                */
+                        // TODO: open Audio.
                     } else
                         text_infos.set("Out of range");
                 }
@@ -152,7 +142,7 @@ void SearchView::do_detection() {
                 recent_entries_view.set_dirty();
 
                 text_infos.set("Listening");
-                big_display.set_style(&style_grey);
+                big_display.set_style(&Styles::grey);
             }
         }
     }
@@ -221,7 +211,7 @@ void SearchView::on_channel_spectrum(const ChannelSpectrum& spectrum) {
             slice_counter = 0;
         } else
             slice_counter++;
-        receiver_model.set_tuning_frequency(slices[slice_counter].center_frequency);
+        receiver_model.set_target_frequency(slices[slice_counter].center_frequency);
         baseband::set_spectrum(SEARCH_SLICE_WIDTH, 31);  // Clear
     } else {
         // Unique slice
@@ -271,7 +261,7 @@ void SearchView::on_range_changed() {
         }
     } else {
         slices[0].center_frequency = (f_max + f_min) / 2;
-        receiver_model.set_tuning_frequency(slices[0].center_frequency);
+        receiver_model.set_target_frequency(slices[0].center_frequency);
 
         slices_nb = 1;
         text_slices.set(" 1");
@@ -362,11 +352,11 @@ SearchView::SearchView(
         nav.push<FrequencyKeypadView>(entry.frequency);
     };
 
-    text_mean.set_style(&style_grey);
-    text_slices.set_style(&style_grey);
-    text_rate.set_style(&style_grey);
-    progress_timers.set_style(&style_grey);
-    big_display.set_style(&style_grey);
+    text_mean.set_style(&Styles::grey);
+    text_slices.set_style(&Styles::grey);
+    text_rate.set_style(&Styles::grey);
+    progress_timers.set_style(&Styles::grey);
+    big_display.set_style(&Styles::grey);
 
     check_snap.set_value(true);
     options_snap.set_selected_index(1);  // 12.5kHz
@@ -376,25 +366,25 @@ SearchView::SearchView(
         power_threshold = value;
     };
 
-    field_frequency_min.set_value(receiver_model.tuning_frequency() - 1000000);
+    field_frequency_min.set_value(receiver_model.target_frequency() - 1000000);
     field_frequency_min.set_step(100000);
     field_frequency_min.on_change = [this](rf::Frequency) {
         this->on_range_changed();
     };
     field_frequency_min.on_edit = [this, &nav]() {
-        auto new_view = nav.push<FrequencyKeypadView>(receiver_model.tuning_frequency());
+        auto new_view = nav.push<FrequencyKeypadView>(receiver_model.target_frequency() - 1000000);
         new_view->on_changed = [this](rf::Frequency f) {
             this->field_frequency_min.set_value(f);
         };
     };
 
-    field_frequency_max.set_value(receiver_model.tuning_frequency() + 1000000);
+    field_frequency_max.set_value(receiver_model.target_frequency() + 1000000);
     field_frequency_max.set_step(100000);
     field_frequency_max.on_change = [this](rf::Frequency) {
         this->on_range_changed();
     };
     field_frequency_max.on_edit = [this, &nav]() {
-        auto new_view = nav.push<FrequencyKeypadView>(receiver_model.tuning_frequency());
+        auto new_view = nav.push<FrequencyKeypadView>(receiver_model.target_frequency() + 1000000);
         new_view->on_changed = [this](rf::Frequency f) {
             this->field_frequency_max.set_value(f);
         };
@@ -414,9 +404,6 @@ SearchView::SearchView(
 
     on_range_changed();
 
-    receiver_model.set_modulation(ReceiverModel::Mode::SpectrumAnalysis);
-    receiver_model.set_sampling_rate(SEARCH_SLICE_WIDTH);
-    receiver_model.set_baseband_bandwidth(2500000);
     receiver_model.enable();
 }
 

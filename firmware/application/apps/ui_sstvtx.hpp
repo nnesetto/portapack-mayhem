@@ -27,7 +27,6 @@
 #include "ui_widget.hpp"
 #include "ui_receiver.hpp"
 #include "ui_navigation.hpp"
-#include "ui_font_fixed_8x16.hpp"
 #include "baseband_api.hpp"
 #include "ui_transmitter.hpp"
 #include "message.hpp"
@@ -35,6 +34,7 @@
 #include "file.hpp"
 #include "bmp.hpp"
 #include "app_settings.hpp"
+#include "radio_state.hpp"
 
 using namespace sstv;
 
@@ -57,11 +57,11 @@ class SSTVTXView : public View {
 
    private:
     NavigationView& nav_;
+    TxRadioState radio_state_{};
+    app_settings::SettingsManager settings_{
+        "tx_sstv", app_settings::Mode::TX};
 
     sstv_scanline scanline_buffer{};
-    // app save settings
-    std::app_settings settings{};
-    std::app_settings::AppSettings app_settings{};
 
     bool file_error{false};
     File bmp_file{};
@@ -76,7 +76,6 @@ class SSTVTXView : public View {
     void read_boundary(uint8_t* buffer, uint32_t position, uint32_t length);
     void on_bitmap_changed(const size_t index);
     void on_mode_changed(const size_t index);
-    void on_tuning_frequency_changed(rf::Frequency f);
     void start_tx();
     void prepare_scanline();
 

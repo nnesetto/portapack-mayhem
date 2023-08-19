@@ -26,7 +26,6 @@
 #include "manchester.hpp"
 #include "string_format.hpp"
 #include "portapack.hpp"
-#include "cpld_update.hpp"
 #include "baseband_api.hpp"
 
 #include <cstring>
@@ -273,13 +272,8 @@ void ADSBTxView::focus() {
 }
 
 ADSBTxView::~ADSBTxView() {
-    // save app settings
-    app_settings.tx_frequency = transmitter_model.tuning_frequency();
-    settings.save("tx_adsb", &app_settings);
-
     transmitter_model.disable();
-    hackrf::cpld::load_sram_no_verify();  // to leave all RX ok, withouth ghost signal problem at the exit .
-    baseband::shutdown();                 // better this function at the end, not load_sram() that sometimes produces hang up.
+    baseband::shutdown();
 }
 
 void ADSBTxView::generate_frames() {
@@ -303,8 +297,6 @@ void ADSBTxView::generate_frames() {
 void ADSBTxView::start_tx() {
     generate_frames();
 
-    transmitter_model.set_sampling_rate(4000000U);
-    transmitter_model.set_baseband_bandwidth(10000000);
     transmitter_model.enable();
 
     baseband::set_adsb();
@@ -327,18 +319,10 @@ ADSBTxView::ADSBTxView(
                   &text_frame,
                   &tx_view});
 
-    // load app settings
-    auto rc = settings.load("tx_adsb", &app_settings);
-    if (rc == SETTINGS_OK) {
-        transmitter_model.set_tuning_frequency(app_settings.tx_frequency);
-        transmitter_model.set_rf_amp(app_settings.tx_amp);
-        transmitter_model.set_tx_gain(app_settings.tx_gain);
-    }
-
     tx_view.on_edit_frequency = [this, &nav]() {
-        auto new_view = nav.push<FrequencyKeypadView>(receiver_model.tuning_frequency());
+        auto new_view = nav.push<FrequencyKeypadView>(transmitter_model.target_frequency());
         new_view->on_changed = [this](rf::Frequency f) {
-            transmitter_model.set_tuning_frequency(f);
+            transmitter_model.set_target_frequency(f);
         };
     };
 

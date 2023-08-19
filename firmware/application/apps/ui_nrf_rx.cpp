@@ -40,11 +40,8 @@ void NRFRxView::focus() {
     field_frequency.focus();
 }
 
-void NRFRxView::update_freq(rf::Frequency f) {
-    receiver_model.set_tuning_frequency(f);
-}
-
-NRFRxView::NRFRxView(NavigationView& nav) {
+NRFRxView::NRFRxView(NavigationView& nav)
+    : nav_{nav} {
     baseband::run_image(portapack::spi_flash::image_tag_nrf_rx);
 
     add_children({&rssi,
@@ -56,16 +53,8 @@ NRFRxView::NRFRxView(NavigationView& nav) {
                   &button_modem_setup,
                   &console});
 
-    // load app settings
-    auto rc = settings.load("rx_nrf", &app_settings);
-    if (rc == SETTINGS_OK) {
-        field_lna.set_value(app_settings.lna);
-        field_vga.set_value(app_settings.vga);
-        field_rf_amp.set_value(app_settings.rx_amp);
-    }
-
     // Auto-configure modem for LCR RX (will be removed later)
-    update_freq(2480000000);
+    field_frequency.set_value(2480000000);
     auto def_bell202 = &modem_defs[0];
     persistent_memory::set_modem_baudrate(def_bell202->baudrate);
     serial_format_t serial_format;
@@ -75,18 +64,7 @@ NRFRxView::NRFRxView(NavigationView& nav) {
     serial_format.bit_order = LSB_FIRST;
     persistent_memory::set_serial_format(serial_format);
 
-    field_frequency.set_value(receiver_model.tuning_frequency());
     field_frequency.set_step(100);
-    field_frequency.on_change = [this](rf::Frequency f) {
-        update_freq(f);
-    };
-    field_frequency.on_edit = [this, &nav]() {
-        auto new_view = nav.push<FrequencyKeypadView>(receiver_model.tuning_frequency());
-        new_view->on_changed = [this](rf::Frequency f) {
-            update_freq(f);
-            field_frequency.set_value(f);
-        };
-    };
 
     button_modem_setup.on_select = [&nav](Button&) {
         nav.push<ModemSetupView>();
@@ -98,9 +76,6 @@ NRFRxView::NRFRxView(NavigationView& nav) {
     audio::set_rate(audio::Rate::Hz_24000);
     audio::output::start();
 
-    receiver_model.set_sampling_rate(4000000);
-    receiver_model.set_baseband_bandwidth(4000000);
-    receiver_model.set_modulation(ReceiverModel::Mode::WidebandFMAudio);
     receiver_model.enable();
 }
 
@@ -151,10 +126,6 @@ void NRFRxView::on_data(uint32_t value, bool is_data) {
 }
 
 NRFRxView::~NRFRxView() {
-    // save app settings
-    app_settings.rx_frequency = field_frequency.value();
-    settings.save("rx_nrf", &app_settings);
-
     audio::output::stop();
     receiver_model.disable();
     baseband::shutdown();

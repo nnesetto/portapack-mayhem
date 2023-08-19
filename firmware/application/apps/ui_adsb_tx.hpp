@@ -29,6 +29,7 @@
 #include "message.hpp"
 #include "transmitter_model.hpp"
 #include "app_settings.hpp"
+#include "radio_state.hpp"
 #include "portapack.hpp"
 
 using namespace adsb;
@@ -201,9 +202,12 @@ class ADSBTxView : public View {
                 -1
         };*/
 
-    // app save settings
-    std::app_settings settings{};
-    std::app_settings::AppSettings app_settings{};
+    TxRadioState radio_state_{
+        10000000 /* bandwidth */,
+        4000000 /* sampling rate */
+    };
+    app_settings::SettingsManager settings_{
+        "tx_adsb", app_settings::Mode::TX};
 
     // tx_modes tx_mode = IDLE;
     NavigationView& nav_;

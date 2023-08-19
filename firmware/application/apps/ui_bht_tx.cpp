@@ -24,7 +24,6 @@
 #include "string_format.hpp"
 
 #include "baseband_api.hpp"
-#include "cpld_update.hpp"
 #include "portapack_persistent_memory.hpp"
 
 using namespace portapack;
@@ -137,13 +136,8 @@ void BHTView::on_tx_progress(const uint32_t progress, const bool done) {
 }
 
 BHTView::~BHTView() {
-    // save app settings
-    app_settings.tx_frequency = transmitter_model.tuning_frequency();
-    settings.save("tx_bht", &app_settings);
-
     transmitter_model.disable();
-    hackrf::cpld::load_sram_no_verify();  // to leave all RX ok, without ghost signal problem at the exit .
-    baseband::shutdown();                 // better this function at the end, not load_sram() that sometimes produces hang up.
+    baseband::shutdown();
 }
 
 BHTView::BHTView(NavigationView& nav) {
@@ -157,21 +151,12 @@ BHTView::BHTView(NavigationView& nav) {
                   &progressbar,
                   &tx_view});
 
-    // load app settings
-    auto rc = settings.load("tx_bht", &app_settings);
-    if (rc == SETTINGS_OK) {
-        transmitter_model.set_rf_amp(app_settings.tx_amp);
-        transmitter_model.set_channel_bandwidth(app_settings.channel_bandwidth);
-        transmitter_model.set_tuning_frequency(app_settings.tx_frequency);
-        transmitter_model.set_tx_gain(app_settings.tx_gain);
-    }
-
     field_speed.set_value(1);
 
     tx_view.on_edit_frequency = [this, &nav]() {
-        auto new_view = nav.push<FrequencyKeypadView>(receiver_model.tuning_frequency());
+        auto new_view = nav.push<FrequencyKeypadView>(transmitter_model.target_frequency());
         new_view->on_changed = [this](rf::Frequency f) {
-            transmitter_model.set_tuning_frequency(f);
+            transmitter_model.set_target_frequency(f);
         };
     };
 
@@ -233,7 +218,6 @@ EPARView::EPARView(
 
     field_city.set_value(0);
     field_group.set_selected_index(2);
-
     field_city.on_change = [this](int32_t) { generate_message(); };
     field_group.on_change = [this](size_t, int32_t) { generate_message(); };
 
@@ -243,11 +227,11 @@ EPARView::EPARView(
 
     size_t n = 0;
     for (auto& relay_state : relay_states) {
-        relay_state.on_change = relay_state_fn;
         relay_state.set_parent_rect({static_cast<Coord>(90 + (n * 36)),
                                      80,
                                      24, 24});
         relay_state.set_options(relay_options);
+        relay_state.on_change = relay_state_fn;  // NB: set after set_options to avoid startup call.
         add_child(&relay_state);
         n++;
     }
@@ -316,11 +300,11 @@ XylosView::XylosView(
     };
 
     field_header_a.on_change = field_fn;
-    field_header_b.on_change = [this](int32_t) { generate_message(); };
-    field_city.on_change = [this](int32_t) { generate_message(); };
-    field_family.on_change = [this](int32_t) { generate_message(); };
-    field_subfamily.on_change = [this](int32_t) { generate_message(); };
-    field_receiver.on_change = [this](int32_t) { generate_message(); };
+    field_header_b.on_change = field_fn;
+    field_city.on_change = field_fn;
+    field_family.on_change = field_fn;
+    field_subfamily.on_change = field_fn;
+    field_receiver.on_change = field_fn;
 
     checkbox_wcsubfamily.on_select = [this](Checkbox&, bool v) {
         field_subfamily.set_focusable(!v);
@@ -341,11 +325,11 @@ XylosView::XylosView(
 
     size_t n = 0;
     for (auto& relay_state : relay_states) {
-        relay_state.on_change = relay_state_fn;
         relay_state.set_parent_rect({static_cast<Coord>(54 + (n * 36)),
                                      134,
                                      24, 24});
         relay_state.set_options(relay_options);
+        relay_state.on_change = relay_state_fn;  // NB: set after set_options to avoid startup call.
         add_child(&relay_state);
         n++;
     }

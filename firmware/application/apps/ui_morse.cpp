@@ -26,7 +26,6 @@
 #include "baseband_api.hpp"
 #include "hackrf_gpio.hpp"
 #include "portapack_shared_memory.hpp"
-#include "cpld_update.hpp"
 #include "ui_textentry.hpp"
 #include "string_format.hpp"
 
@@ -98,13 +97,8 @@ void MorseView::focus() {
 }
 
 MorseView::~MorseView() {
-    // save app settings
-    app_settings.tx_frequency = transmitter_model.tuning_frequency();
-    settings.save("tx_morse", &app_settings);
-
     transmitter_model.disable();
-    hackrf::cpld::load_sram_no_verify();  // to leave all RX ok, without ghost signal problem at the exit .
-    baseband::shutdown();                 // better this function at the end, not load_sram() that sometimes produces hang up.
+    baseband::shutdown();
 }
 
 void MorseView::paint(Painter&) {
@@ -123,9 +117,6 @@ bool MorseView::start_tx() {
     }
 
     progressbar.set_max(symbol_count);
-
-    transmitter_model.set_sampling_rate(1536000U);
-    transmitter_model.set_baseband_bandwidth(1750000);
     transmitter_model.enable();
 
     if (modulation == CW) {
@@ -206,15 +197,6 @@ MorseView::MorseView(
                   &progressbar,
                   &tx_view});
 
-    // load app settings
-    auto rc = settings.load("tx_morse", &app_settings);
-    if (rc == SETTINGS_OK) {
-        transmitter_model.set_rf_amp(app_settings.tx_amp);
-        transmitter_model.set_channel_bandwidth(app_settings.channel_bandwidth);
-        transmitter_model.set_tuning_frequency(app_settings.tx_frequency);
-        transmitter_model.set_tx_gain(app_settings.tx_gain);
-    }
-
     // Default settings
     field_speed.set_value(15);                 // 15wps
     field_tone.set_value(700);                 // 700Hz FM tone
@@ -251,9 +233,9 @@ MorseView::MorseView(
     };
 
     tx_view.on_edit_frequency = [this, &nav]() {
-        auto new_view = nav.push<FrequencyKeypadView>(receiver_model.tuning_frequency());
+        auto new_view = nav.push<FrequencyKeypadView>(transmitter_model.target_frequency());
         new_view->on_changed = [this](rf::Frequency f) {
-            receiver_model.set_tuning_frequency(f);
+            transmitter_model.set_target_frequency(f);
         };
     };
 

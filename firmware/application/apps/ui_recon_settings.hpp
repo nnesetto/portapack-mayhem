@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2014 Jared Boone, ShareBrained Technology, Inc.
  * Copyright (C) 2016 Furrtek
+ * Copyright (C) 2023 gullradriel, Nilorea Studio Inc.
  *
  * This file is part of PortaPack.
  *
@@ -49,6 +50,8 @@
 // maximum lock duration
 #define RECON_MAX_LOCK_DURATION 9900
 
+#define RECON_DEF_SQUELCH -14
+
 // default number of match to have a lock
 #define RECON_DEF_NB_MATCH 3
 #define RECON_MIN_LOCK_DURATION 100   // have to be >= and a multiple of STATS_UPDATE_INTERVAL
@@ -59,7 +62,7 @@
 //#define SCREEN_H 320
 
 // recon settings nb params
-#define RECON_SETTINGS_NB_PARAMS 8
+#define RECON_SETTINGS_NB_PARAMS 7
 
 namespace ui {
 
@@ -70,8 +73,8 @@ class ReconSetupViewMain : public View {
     void focus() override;
 
    private:
-    std::string _input_file = {"RECON"};
-    std::string _output_file = {"RECON_RESULTS"};
+    std::string _input_file{"RECON"};
+    std::string _output_file{"RECON_RESULTS"};
 
     Button button_load_freqs{
         {1 * 8, 12, 18 * 8, 22},
@@ -97,29 +100,21 @@ class ReconSetupViewMain : public View {
         3,
         "autostart recon"};
 
-    Checkbox checkbox_continuous{
-        {1 * 8, 11 * 16 - 4},
-        3,
-        "continuous"};
     Checkbox checkbox_clear_output{
-        {1 * 8, 13 * 16 - 4},
+        {1 * 8, 11 * 16 - 4},
         3,
         "clear output at start"};
 };
 
 class ReconSetupViewMore : public View {
    public:
-    ReconSetupViewMore(NavigationView& nav, Rect parent_rect, uint32_t _recon_lock_duration, uint32_t _recon_lock_nb_match, uint32_t _recon_match_mode);
+    ReconSetupViewMore(NavigationView& nav, Rect parent_rect);
 
-    void save(uint32_t& recon_lock_duration, uint32_t& recon_lock_nb_match, uint32_t& recon_match_mode);
+    void save();
 
     void focus() override;
 
    private:
-    uint32_t _recon_lock_duration = STATS_UPDATE_INTERVAL;
-    uint32_t _recon_lock_nb_match = RECON_DEF_NB_MATCH;
-    uint32_t _recon_match_mode = RECON_MATCH_CONTINUOUS;
-
     Checkbox checkbox_load_freqs{
         {1 * 8, 12},
         3,
@@ -139,43 +134,15 @@ class ReconSetupViewMore : public View {
         {1 * 8, 102},
         3,
         "auto update m-ranges"};
-
-    NumberField field_recon_lock_duration{
-        {1 * 8, 132},                                      // position X , Y
-        4,                                                 // number of displayed digits (even empty)
-        {STATS_UPDATE_INTERVAL, RECON_MAX_LOCK_DURATION},  // range of number
-        STATS_UPDATE_INTERVAL,                             // rotary encoder increment
-        ' ',                                               // filling character
-        false                                              // can loop
-    };
-
-    Text text_recon_lock_duration{
-        {1 * 8, 132, 22 * 8, 22},
-        "    ms (lock duration)"};
-
-    NumberField field_recon_lock_nb_match{
-        {1 * 8, 162},
-        4,
-        {1, 99},
-        1,
-        ' ',
-        false};
-
-    Text text_recon_lock_nb{
-        {1 * 8, 162, 25 * 8, 22},
-        "    x (nb lock to match freq)"};
-
-    OptionsField field_recon_match_mode{
-        {1 * 8, 192},
-        20,  // CONTINUOUS MATCH MODE / SPARSE TIMED MATCH MODE
-        {
-            {"SQL MATCH: CONTINOUS", 0},
-            {"SQL MATCH: SPARSE", 1}}};
+    Checkbox checkbox_auto_record_locked{
+        {1 * 8, 132},
+        3,
+        "record locked periods"};
 };
 
 class ReconSetupView : public View {
    public:
-    ReconSetupView(NavigationView& nav, std::string _input_file, std::string _output_file, uint32_t _recon_lock_duration, uint32_t _recon_lock_nb_match, uint32_t _recon_match_mode);
+    ReconSetupView(NavigationView& nav, std::string _input_file, std::string _output_file);
 
     std::function<void(std::vector<std::string> messages)> on_changed{};
 
@@ -186,16 +153,13 @@ class ReconSetupView : public View {
    private:
     NavigationView& nav_;
 
-    std::string input_file = {"RECON"};
-    std::string output_file = {"RECON_RESULTS"};
-    uint32_t recon_lock_duration = STATS_UPDATE_INTERVAL;
-    uint32_t recon_lock_nb_match = RECON_DEF_NB_MATCH;
-    uint32_t recon_match_mode = RECON_MATCH_CONTINUOUS;
+    std::string input_file{"RECON"};
+    std::string output_file{"RECON_RESULTS"};
 
-    Rect view_rect = {0, 3 * 8, SCREEN_W, 230};
+    Rect view_rect{0, 3 * 8, SCREEN_W, 230};
 
     ReconSetupViewMain viewMain{nav_, view_rect, input_file, output_file};
-    ReconSetupViewMore viewMore{nav_, view_rect, recon_lock_duration, recon_lock_nb_match, recon_match_mode};
+    ReconSetupViewMore viewMore{nav_, view_rect};
 
     TabView tab_view{
         {"Main", Color::cyan(), &viewMain},

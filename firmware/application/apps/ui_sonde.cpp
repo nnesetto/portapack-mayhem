@@ -41,7 +41,8 @@ void SondeLogger::on_packet(const sonde::Packet& packet) {
 
 namespace ui {
 
-SondeView::SondeView(NavigationView& nav) {
+SondeView::SondeView(NavigationView& nav)
+    : nav_{nav} {
     baseband::run_image(portapack::spi_flash::image_tag_sonde);
 
     add_children({&labels,
@@ -65,30 +66,10 @@ SondeView::SondeView(NavigationView& nav) {
                   &button_see_qr,
                   &button_see_map});
 
-    // load app settings
-    auto rc = settings.load("rx_sonde", &app_settings);
-    if (rc == SETTINGS_OK) {
-        field_lna.set_value(app_settings.lna);
-        field_vga.set_value(app_settings.vga);
-        field_rf_amp.set_value(app_settings.rx_amp);
-        target_frequency_ = app_settings.rx_frequency;
-    } else
-        target_frequency_ = receiver_model.tuning_frequency();
+    if (!settings_.loaded())
+        field_frequency.set_value(initial_target_frequency);
 
-    field_frequency.set_value(target_frequency_);
     field_frequency.set_step(500);  // euquiq: was 10000, but we are using this for fine-tunning
-    field_frequency.on_change = [this](rf::Frequency f) {
-        set_target_frequency(f);
-        field_frequency.set_value(f);
-    };
-    field_frequency.on_edit = [this, &nav]() {
-        // TODO: Provide separate modal method/scheme?
-        auto new_view = nav.push<FrequencyKeypadView>(receiver_model.tuning_frequency());
-        new_view->on_changed = [this](rf::Frequency f) {
-            set_target_frequency(f);
-            field_frequency.set_value(f);
-        };
-    };
 
     geopos.set_read_only(true);
 
@@ -104,10 +85,7 @@ SondeView::SondeView(NavigationView& nav) {
         use_crc = v;
     };
 
-    receiver_model.set_tuning_frequency(tuning_frequency());
-    receiver_model.set_sampling_rate(sampling_rate);
-    receiver_model.set_baseband_bandwidth(baseband_bandwidth);
-    receiver_model.enable();  // Before using radio::enable(), but not updating Ant.DC-Bias.
+    receiver_model.enable();
 
     // QR code with geo URI
     button_see_qr.on_select = [this, &nav](Button&) {
@@ -128,15 +106,7 @@ SondeView::SondeView(NavigationView& nav) {
     if (logger)
         logger->append(LOG_ROOT_DIR "/SONDE.TXT");
 
-    // initialize audio:
-    field_volume.set_value((receiver_model.headphone_volume() - audio::headphone::volume_range().max).decibel() + 99);
-
-    field_volume.on_change = [this](int32_t v) {
-        this->on_headphone_volume_changed(v);
-    };
-
     audio::output::start();
-    audio::output::speaker_unmute();
 
     // inject a PitchRSSIConfigureMessage in order to arm
     // the pitch rssi events that will be used by the
@@ -149,19 +119,15 @@ SondeView::SondeView(NavigationView& nav) {
 }
 
 SondeView::~SondeView() {
-    // save app settings
-    app_settings.rx_frequency = target_frequency_;
-    settings.save("rx_sonde", &app_settings);
-
     baseband::set_pitch_rssi(0, false);
 
-    receiver_model.disable();  // to switch off all, including DC bias.
+    receiver_model.disable();
     baseband::shutdown();
     audio::output::stop();
 }
 
 void SondeView::focus() {
-    field_vga.focus();
+    field_frequency.focus();
 }
 
 // used to convert float to character pointer, since unfortunately function like
@@ -223,15 +189,11 @@ void SondeView::on_packet(const sonde::Packet& packet) {
         temp_humid_info = packet.get_temp_humid();
         if (temp_humid_info.humid != 0) {
             double decimals = abs(get_decimals(temp_humid_info.humid, 10, true));
-            // if (decimals < 0)
-            //	decimals = -decimals;
             text_humid.set(to_string_dec_int((int)temp_humid_info.humid) + "." + to_string_dec_uint(decimals, 1) + "%");
         }
 
         if (temp_humid_info.temp != 0) {
             double decimals = abs(get_decimals(temp_humid_info.temp, 10, true));
-            // if (decimals < 0)
-            // 	decimals = -decimals;
             text_temp.set(to_string_dec_int((int)temp_humid_info.temp) + "." + to_string_dec_uint(decimals, 1) + "C");
         }
 
@@ -249,22 +211,6 @@ void SondeView::on_packet(const sonde::Packet& packet) {
             baseband::request_beep();
         }
     }
-}
-
-void SondeView::on_headphone_volume_changed(int32_t v) {
-    const auto new_volume = volume_t::decibel(v - 99) + audio::headphone::volume_range().max;
-    receiver_model.set_headphone_volume(new_volume);
-}
-
-void SondeView::set_target_frequency(const uint32_t new_value) {
-    target_frequency_ = new_value;
-    // radio::set_tuning_frequency(tuning_frequency());
-    //  we better remember the tuned frequency, by using this function instead:
-    receiver_model.set_tuning_frequency(target_frequency_);
-}
-
-uint32_t SondeView::tuning_frequency() const {
-    return target_frequency_ - (sampling_rate / 4);
 }
 
 } /* namespace ui */

@@ -29,8 +29,8 @@
 #include "baseband_api.hpp"
 #include "lfsr_random.hpp"
 #include "io_wave.hpp"
-#include "tone_key.hpp"
 #include "app_settings.hpp"
+#include "radio_state.hpp"
 
 namespace ui {
 
@@ -49,11 +49,14 @@ class SoundBoardView : public View {
     std::string title() const override { return "Soundbrd TX"; };
 
    private:
-    NavigationView& nav_;
+    TxRadioState radio_state_{
+        1750000 /* bandwidth */,
+        1536000 /* sampling rate */
+    };
+    app_settings::SettingsManager settings_{
+        "tx_soundboard", app_settings::Mode::TX};
 
-    // app save settings
-    std::app_settings settings{};
-    std::app_settings::AppSettings app_settings{};
+    NavigationView& nav_;
 
     enum tx_modes {
         NORMAL = 0,

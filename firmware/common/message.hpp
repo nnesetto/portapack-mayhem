@@ -78,7 +78,7 @@ class Message {
         ReplayThreadDone = 21,
         AFSKRxConfigure = 22,
         StatusRefresh = 23,
-        SamplerateConfig = 24,
+        SampleRateConfig = 24,
         BTLERxConfigure = 25,
         NRFRxConfigure = 26,
         TXProgress = 27,
@@ -798,15 +798,43 @@ class RetuneMessage : public Message {
     uint32_t range = 0;
 };
 
-class SamplerateConfigMessage : public Message {
+/* Oversample/Interpolation sample rate multipliers. */
+enum class OversampleRate : uint8_t {
+    /* Use either to indicate there's no oversampling needed. */
+    None = 1,
+    x1 = None,
+
+    // 4x would make sense to have, but need to ensure it doesn't
+    // overrun the IQ read buffer in proc_replay.
+
+    /* Oversample rate of 8 times the sample rate. */
+    x8 = 8,
+
+    /* Oversample rate of 16 times the sample rate. */
+    x16 = 16,
+
+    /* Oversample rate of 32 times the sample rate. */
+    x32 = 32,
+
+    /* Oversample rate of 64 times the sample rate. */
+    x64 = 64,
+
+    /* Oversample rate of 128 times the sample rate. */
+    x128 = 128,
+};
+
+class SampleRateConfigMessage : public Message {
    public:
-    constexpr SamplerateConfigMessage(
-        const uint32_t sample_rate)
-        : Message{ID::SamplerateConfig},
-          sample_rate(sample_rate) {
+    constexpr SampleRateConfigMessage(
+        uint32_t sample_rate,
+        OversampleRate oversample_rate)
+        : Message{ID::SampleRateConfig},
+          sample_rate(sample_rate),
+          oversample_rate(oversample_rate) {
     }
 
     const uint32_t sample_rate = 0;
+    const OversampleRate oversample_rate = OversampleRate::None;
 };
 
 class AudioLevelReportMessage : public Message {

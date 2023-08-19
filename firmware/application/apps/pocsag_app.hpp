@@ -24,11 +24,13 @@
 #define __POCSAG_APP_H__
 
 #include "ui_widget.hpp"
+#include "ui_freq_field.hpp"
 #include "ui_receiver.hpp"
 #include "ui_rssi.hpp"
 
 #include "log_file.hpp"
 #include "app_settings.hpp"
+#include "radio_state.hpp"
 #include "pocsag.hpp"
 #include "pocsag_packet.hpp"
 
@@ -52,20 +54,23 @@ class POCSAGAppView : public View {
     POCSAGAppView(NavigationView& nav);
     ~POCSAGAppView();
 
-    void set_parent_rect(const Rect new_parent_rect) override;
-    void focus() override;
-
     std::string title() const override { return "POCSAG RX"; };
+    void focus() override;
 
    private:
     static constexpr uint32_t initial_target_frequency = 466175000;
+    bool logging() const { return check_log.value(); };
+    bool ignore() const { return check_ignore.value(); };
 
-    // app save settings
-    std::app_settings settings{};
-    std::app_settings::AppSettings app_settings{};
+    NavigationView& nav_;
+    RxRadioState radio_state_{};
+    // Settings
+    bool enable_logging = false;
+    app_settings::SettingsManager settings_{
+        "rx_pocsag"sv,
+        app_settings::Mode::RX,
+        {{"enable_logging"sv, &enable_logging}}};
 
-    bool logging{false};
-    bool ignore{false};
     uint32_t last_address = 0xFFFFFFFF;
     pocsag::POCSAGState pocsag_state{};
 
@@ -76,25 +81,18 @@ class POCSAGAppView : public View {
     VGAGainField field_vga{
         {18 * 8, 0 * 16}};
     RSSI rssi{
-        {21 * 8, 0, 6 * 8, 4},
-    };
+        {21 * 8, 0, 6 * 8, 4}};
     Channel channel{
-        {21 * 8, 5, 6 * 8, 4},
-    };
+        {21 * 8, 5, 6 * 8, 4}};
     Audio audio{
-        {21 * 8, 10, 6 * 8, 4},
-    };
+        {21 * 8, 10, 6 * 8, 4}};
 
-    FrequencyField field_frequency{
+    RxFrequencyField field_frequency{
         {0 * 8, 0 * 8},
-    };
-    NumberField field_volume{
-        {28 * 8, 0 * 16},
-        2,
-        {0, 99},
-        1,
-        ' ',
-    };
+        nav_};
+
+    AudioVolumeField field_volume{
+        {28 * 8, 0 * 16}};
 
     Checkbox check_ignore{
         {0 * 8, 21},
@@ -105,10 +103,11 @@ class POCSAGAppView : public View {
         {13 * 8, 25},
         7,
         SymField::SYMFIELD_DEC};
+
     Checkbox check_log{
         {240 - 8 * 8, 21},
         3,
-        "LOG",
+        "Log",
         false};
 
     Console console{
@@ -116,16 +115,7 @@ class POCSAGAppView : public View {
 
     std::unique_ptr<POCSAGLogger> logger{};
 
-    uint32_t target_frequency_ = initial_target_frequency;
-
-    void update_freq(rf::Frequency f);
-
     void on_packet(const POCSAGPacketMessage* message);
-
-    void on_headphone_volume_changed(int32_t v);
-
-    uint32_t target_frequency() const;
-    void set_target_frequency(const uint32_t new_value);
 
     MessageHandlerRegistration message_handler_packet{
         Message::ID::POCSAGPacket,

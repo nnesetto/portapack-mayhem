@@ -24,7 +24,6 @@
 
 #include "baseband_api.hpp"
 #include "string_format.hpp"
-#include "cpld_update.hpp"
 
 using namespace portapack;
 
@@ -200,13 +199,8 @@ void EncodersView::focus() {
 }
 
 EncodersView::~EncodersView() {
-    // save app settings
-    app_settings.tx_frequency = transmitter_model.tuning_frequency();
-    settings.save("tx_ook", &app_settings);
-
     transmitter_model.disable();
-    hackrf::cpld::load_sram_no_verify();  // ghost signal c/m to the problem at the exit .
-    baseband::shutdown();                 // better this function after load_sram()
+    baseband::shutdown();
 }
 
 void EncodersView::update_progress() {
@@ -266,8 +260,6 @@ void EncodersView::start_tx(const bool scan) {
     repeat_index = 1;
     update_progress();
 
-    transmitter_model.set_sampling_rate(OOK_SAMPLERATE);
-    transmitter_model.set_baseband_bandwidth(1750000);
     transmitter_model.enable();
 
     baseband::set_ook_data(
@@ -290,19 +282,10 @@ EncodersView::EncodersView(
                   &progressbar,
                   &tx_view});
 
-    // load app settings
-    auto rc = settings.load("tx_ook", &app_settings);
-    if (rc == SETTINGS_OK) {
-        transmitter_model.set_rf_amp(app_settings.tx_amp);
-        transmitter_model.set_channel_bandwidth(app_settings.channel_bandwidth);
-        transmitter_model.set_tuning_frequency(app_settings.tx_frequency);
-        transmitter_model.set_tx_gain(app_settings.tx_gain);
-    }
-
     tx_view.on_edit_frequency = [this, &nav]() {
-        auto new_view = nav.push<FrequencyKeypadView>(transmitter_model.tuning_frequency());
+        auto new_view = nav.push<FrequencyKeypadView>(transmitter_model.target_frequency());
         new_view->on_changed = [this](rf::Frequency f) {
-            transmitter_model.set_tuning_frequency(f);
+            transmitter_model.set_target_frequency(f);
         };
     };
 

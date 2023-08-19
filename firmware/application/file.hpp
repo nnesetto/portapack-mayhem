@@ -26,6 +26,7 @@
 #include "ff.h"
 
 #include "optional.hpp"
+#include "result.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -75,36 +76,30 @@ struct path {
         : _s{} {
     }
 
-    path(
-        const path& p)
+    path(const path& p)
         : _s{p._s} {
     }
 
-    path(
-        path&& p)
+    path(path&& p)
         : _s{std::move(p._s)} {
     }
 
     template <class Source>
-    path(
-        const Source& source)
+    path(const Source& source)
         : path{std::begin(source), std::end(source)} {
     }
 
     template <class InputIt>
-    path(
-        InputIt first,
-        InputIt last)
+    path(InputIt first,
+         InputIt last)
         : _s{first, last} {
     }
 
-    path(
-        const char16_t* const s)
+    path(const char16_t* const s)
         : _s{s} {
     }
 
-    path(
-        const TCHAR* const s)
+    path(const TCHAR* const s)
         : _s{reinterpret_cast<const std::filesystem::path::value_type*>(s)} {
     }
 
@@ -131,6 +126,10 @@ struct path {
         return native().c_str();
     }
 
+    const TCHAR* tchar() const {
+        return reinterpret_cast<const TCHAR*>(native().c_str());
+    }
+
     const string_type& native() const {
         return _s;
     }
@@ -148,7 +147,7 @@ struct path {
     }
 
     path& operator/=(const path& p) {
-        if (_s.back() != preferred_separator)
+        if (_s.back() != preferred_separator && p._s.front() != preferred_separator)
             _s += preferred_separator;
         _s += p._s;
         return *this;
@@ -166,6 +165,11 @@ bool operator<(const path& lhs, const path& rhs);
 bool operator>(const path& lhs, const path& rhs);
 path operator+(const path& lhs, const path& rhs);
 path operator/(const path& lhs, const path& rhs);
+
+/* Case insensitive path equality on underlying "native" string. */
+bool path_iequal(const path& lhs, const path& rhs);
+bool is_cxx_capture_file(const path& filename);
+uint8_t capture_file_sample_size(const path& filename);
 
 using file_status = BYTE;
 
@@ -203,7 +207,8 @@ class directory_iterator {
     };
 
     std::shared_ptr<Impl> impl{};
-    const path pattern{};
+    std::filesystem::path path_{};
+    std::filesystem::path wild_{};
 
     friend bool operator!=(const directory_iterator& lhs, const directory_iterator& rhs);
 
@@ -215,7 +220,8 @@ class directory_iterator {
     using iterator_category = std::input_iterator_tag;
 
     directory_iterator() noexcept {};
-    directory_iterator(std::filesystem::path path, std::filesystem::path wild);
+    directory_iterator(const std::filesystem::path& path,
+                       const std::filesystem::path& wild);
 
     ~directory_iterator() {}
 
@@ -242,6 +248,9 @@ bool is_directory(const file_status s);
 bool is_regular_file(const file_status s);
 bool file_exists(const path& file_path);
 bool is_directory(const path& file_path);
+bool is_empty_directory(const path& file_path);
+
+int file_count(const path& dir_path);
 
 space_info space(const path& p);
 
@@ -256,11 +265,19 @@ struct FATTimestamp {
 std::filesystem::filesystem_error delete_file(const std::filesystem::path& file_path);
 std::filesystem::filesystem_error rename_file(const std::filesystem::path& file_path, const std::filesystem::path& new_name);
 std::filesystem::filesystem_error copy_file(const std::filesystem::path& file_path, const std::filesystem::path& dest_path);
+
 FATTimestamp file_created_date(const std::filesystem::path& file_path);
 std::filesystem::filesystem_error make_new_file(const std::filesystem::path& file_path);
 std::filesystem::filesystem_error make_new_directory(const std::filesystem::path& dir_path);
 std::filesystem::filesystem_error ensure_directory(const std::filesystem::path& dir_path);
 
+template <typename TCallback>
+void scan_root_files(const std::filesystem::path& directory, const std::filesystem::path& extension, const TCallback& fn) {
+    for (const auto& entry : std::filesystem::directory_iterator(directory, extension)) {
+        if (std::filesystem::is_regular_file(entry.status()))
+            fn(entry.path());
+    }
+}
 std::vector<std::filesystem::path> scan_root_files(const std::filesystem::path& directory, const std::filesystem::path& extension);
 std::vector<std::filesystem::path> scan_root_directories(const std::filesystem::path& directory);
 
@@ -289,71 +306,35 @@ class File {
     using Error = std::filesystem::filesystem_error;
 
     template <typename T>
-    struct Result {
-        enum class Type {
-            Success,
-            Error,
-        } type;
-        union {
-            T value_;
-            Error error_;
-        };
-
-        bool is_ok() const {
-            return type == Type::Success;
-        }
-
-        bool is_error() const {
-            return type == Type::Error;
-        }
-
-        const T& value() const {
-            return value_;
-        }
-
-        Error error() const {
-            return error_;
-        }
-
-        Result() = delete;
-
-        constexpr Result(
-            T value)
-            : type{Type::Success},
-              value_{value} {
-        }
-
-        constexpr Result(
-            Error error)
-            : type{Type::Error},
-              error_{error} {
-        }
-
-        ~Result() {
-            if (type == Type::Success) {
-                value_.~T();
-            }
-        }
-    };
+    using Result = Result<T, Error>;
 
     File(){};
     ~File();
+
+    File(File&& other) {
+        std::swap(f, other.f);
+    }
+    File& operator=(File&& other) {
+        std::swap(f, other.f);
+        return *this;
+    }
 
     /* Prevent copies */
     File(const File&) = delete;
     File& operator=(const File&) = delete;
 
     // TODO: Return Result<>.
-    Optional<Error> open(const std::filesystem::path& filename);
+    Optional<Error> open(const std::filesystem::path& filename, bool read_only = true, bool create = false);
     Optional<Error> append(const std::filesystem::path& filename);
     Optional<Error> create(const std::filesystem::path& filename);
 
-    Result<Size> read(void* const data, const Size bytes_to_read);
-    Result<Size> write(const void* const data, const Size bytes_to_write);
+    Result<Size> read(void* data, const Size bytes_to_read);
+    Result<Size> write(const void* data, Size bytes_to_write);
 
-    Result<Offset> seek(const uint64_t Offset);
-    Timestamp created_date();
-    Size size();
+    Offset tell() const;
+    Result<Offset> seek(uint64_t Offset);
+    Result<Offset> truncate();
+    Size size() const;
 
     template <size_t N>
     Result<Size> write(const std::array<uint8_t, N>& data) {
@@ -364,6 +345,10 @@ class File {
 
     // TODO: Return Result<>.
     Optional<Error> sync();
+
+    /* Reads the entire file contents to a string.
+     * NB: This will likely fail for files larger than ~10kB. */
+    static Result<std::string> read_file(const std::filesystem::path& filename);
 
    private:
     FIL f{};

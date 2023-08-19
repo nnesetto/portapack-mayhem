@@ -25,10 +25,14 @@
 
 #include "radio.hpp"
 #include "string_format.hpp"
+#include "crc.hpp"
 
 #include "audio.hpp"
 
 #include "ui_sd_card_debug.hpp"
+#include "ui_font_fixed_8x16.hpp"
+#include "ui_styles.hpp"
+#include "ui_painter.hpp"
 
 #include "portapack.hpp"
 #include "portapack_persistent_memory.hpp"
@@ -247,26 +251,31 @@ void ControlsSwitchesWidget::on_show() {
 
 bool ControlsSwitchesWidget::on_key(const KeyEvent key) {
     key_event_mask = 1 << toUType(key);
+    long_press_key_event_mask = key_is_long_pressed(key) ? key_event_mask : 0;
     return true;
 }
 
 void ControlsSwitchesWidget::paint(Painter& painter) {
     const auto pos = screen_pos();
 
-    const std::array<Rect, 8> button_rects{{
+    const std::array<Rect, 9> button_rects{{
         {64, 32, 16, 16},  // Right
         {0, 32, 16, 16},   // Left
         {32, 64, 16, 16},  // Down
         {32, 0, 16, 16},   // Up
         {32, 32, 16, 16},  // Select
+        {96, 0, 16, 16},   // Dfu
         {16, 96, 16, 16},  // Encoder phase 0
         {48, 96, 16, 16},  // Encoder phase 1
-        {96, 0, 16, 16},   // Dfu
+        {96, 64, 16, 16},  // Touch
     }};
 
     for (const auto r : button_rects) {
         painter.fill_rectangle(r + pos, Color::blue());
     }
+
+    if (get_touch_frame().touch)
+        painter.fill_rectangle(button_rects[8] + pos, Color::yellow());
 
     const std::array<Rect, 8> raw_rects{{
         {64 + 1, 32 + 1, 16 - 2, 16 - 2},  // Right
@@ -274,9 +283,9 @@ void ControlsSwitchesWidget::paint(Painter& painter) {
         {32 + 1, 64 + 1, 16 - 2, 16 - 2},  // Down
         {32 + 1, 0 + 1, 16 - 2, 16 - 2},   // Up
         {32 + 1, 32 + 1, 16 - 2, 16 - 2},  // Select
+        {96 + 1, 0 + 1, 16 - 2, 16 - 2},   // Dfu
         {16 + 1, 96 + 1, 16 - 2, 16 - 2},  // Encoder phase 0
         {48 + 1, 96 + 1, 16 - 2, 16 - 2},  // Encoder phase 1
-        {96 + 1, 0 + 1, 16 - 2, 16 - 2},   // Dfu
     }};
 
     auto switches_raw = control::debug::switches();
@@ -320,6 +329,14 @@ void ControlsSwitchesWidget::paint(Painter& painter) {
 
         switches_event >>= 1;
     }
+
+    switches_event = long_press_key_event_mask;
+    for (const auto r : events_rects) {
+        if (switches_event & 1)
+            painter.fill_rectangle(r + pos, Color::cyan());
+
+        switches_event >>= 1;
+    }
 }
 
 void ControlsSwitchesWidget::on_frame_sync() {
@@ -330,12 +347,21 @@ void ControlsSwitchesWidget::on_frame_sync() {
 
 DebugControlsView::DebugControlsView(NavigationView& nav) {
     add_children({
-        &text_title,
+        &labels,
         &switches_widget,
+        &options_switches_mode,
         &button_done,
     });
 
-    button_done.on_select = [&nav](Button&) { nav.pop(); };
+    button_done.on_select = [&nav](Button&) {
+        set_switches_long_press_config(0);
+        nav.pop();
+    };
+
+    options_switches_mode.on_change = [this](size_t, OptionsField::value_t v) {
+        (void)v;
+        set_switches_long_press_config(options_switches_mode.selected_index_value());
+    };
 }
 
 void DebugControlsView::focus() {
@@ -377,9 +403,156 @@ DebugMenuView::DebugMenuView(NavigationView& nav) {
         {"Peripherals", ui::Color::dark_cyan(), &bitmap_icon_peripherals, [&nav]() { nav.push<DebugPeripheralsMenuView>(); }},
         {"Temperature", ui::Color::dark_cyan(), &bitmap_icon_temperature, [&nav]() { nav.push<TemperatureView>(); }},
         {"Buttons Test", ui::Color::dark_cyan(), &bitmap_icon_controls, [&nav]() { nav.push<DebugControlsView>(); }},
+        {"Touch Test", ui::Color::dark_cyan(), &bitmap_icon_notepad, [&nav]() { nav.push<DebugScreenTest>(); }},
+        {"P.Memory", ui::Color::dark_cyan(), &bitmap_icon_memory, [&nav]() { nav.push<DebugPmemView>(); }},
+        {"Debug Dump", ui::Color::dark_cyan(), &bitmap_icon_memory, [&nav]() { portapack::persistent_memory::debug_dump(); }},
+        {"Fonts Viewer", ui::Color::dark_cyan(), &bitmap_icon_notepad, [&nav]() { nav.push<DebugFontsView>(); }},
     });
     set_max_rows(2);  // allow wider buttons
 }
+
+/* DebugPmemView *********************************************************/
+
+uint32_t pmem_checksum(volatile const uint32_t data[63]) {
+    CRC<32> crc{0x04c11db7, 0xffffffff, 0xffffffff};
+    for (size_t i = 0; i < 63; i++) {
+        const auto word = data[i];
+        crc.process_byte((word >> 0) & 0xff);
+        crc.process_byte((word >> 8) & 0xff);
+        crc.process_byte((word >> 16) & 0xff);
+        crc.process_byte((word >> 24) & 0xff);
+    }
+    return crc.checksum();
+}
+
+DebugPmemView::DebugPmemView(NavigationView& nav)
+    : data{*reinterpret_cast<pmem_data*>(memory::map::backup_ram.base())}, registers_widget(RegistersWidgetConfig{page_size, 8}, std::bind(&DebugPmemView::registers_widget_feed, this, std::placeholders::_1)) {
+    static_assert(sizeof(pmem_data) == memory::map::backup_ram.size());
+
+    add_children({&text_page, &registers_widget, &text_checksum, &text_checksum2, &button_ok});
+
+    registers_widget.set_parent_rect({0, 32, 240, 192});
+
+    text_checksum.set("Size: " + to_string_dec_uint(portapack::persistent_memory::data_size(), 3) + "  CRC: " + to_string_hex(data.check_value, 8));
+    text_checksum2.set("Calculated CRC: " + to_string_hex(pmem_checksum(data.regfile), 8));
+
+    button_ok.on_select = [&nav](Button&) {
+        nav.pop();
+    };
+
+    update();
+}
+
+bool DebugPmemView::on_encoder(const EncoderEvent delta) {
+    page = std::max(0l, std::min((int32_t)page_max, page + delta));
+
+    update();
+
+    return true;
+}
+
+void DebugPmemView::focus() {
+    button_ok.focus();
+}
+
+void DebugPmemView::update() {
+    text_page.set(to_string_hex(page_size * page, 2) + "+");
+    registers_widget.update();
+}
+
+uint32_t DebugPmemView::registers_widget_feed(const size_t register_number) {
+    if (page_size * page + register_number >= memory::map::backup_ram.size()) {
+        return 0xff;
+    }
+    return data.regfile[(page_size * page + register_number) / 4] >> (register_number % 4 * 8);
+}
+
+/* DebugFontsView *******************************************************/
+
+uint16_t DebugFontsView::display_font(Painter& painter, uint16_t y_offset, const Style* font_style, std::string_view font_name) {
+    auto char_width{font_style->font.char_width()};
+    auto char_height{font_style->font.line_height()};
+    auto cpl{((screen_width / char_width) - 6) & 0xF8};  // Display a multiple of 8 characters per line
+    uint16_t line_pos{y_offset};
+
+    painter.draw_string({0, y_offset}, *font_style, font_name);
+
+    // Displaying ASCII+extended characters from 0x20 to 0xFF
+    for (uint8_t c = 0; c <= 0xDF; c++) {
+        line_pos = y_offset + ((c / cpl) + 2) * char_height;
+
+        if ((c % cpl) == 0)
+            painter.draw_string({0, line_pos}, *font_style, "Ox" + to_string_hex(c + 0x20, 2));
+
+        painter.draw_char({((c % cpl) + 5) * char_width, line_pos}, *font_style, (char)(c + 0x20));
+    }
+
+    return line_pos + char_height;
+}
+
+void DebugFontsView::paint(Painter& painter) {
+    int16_t line_pos;
+
+    line_pos = display_font(painter, 32, &Styles::white, "Fixed 8x16");
+    display_font(painter, line_pos + 16, &Styles::white_small, "Fixed 5x8");
+}
+
+DebugFontsView::DebugFontsView(NavigationView& nav)
+    : nav_{nav} {
+    set_focusable(true);
+}
+
+/* DebugScreenTest ****************************************************/
+
+DebugScreenTest::DebugScreenTest(NavigationView& nav)
+    : nav_{nav} {
+    set_focusable(true);
+}
+
+bool DebugScreenTest::on_key(const KeyEvent key) {
+    Painter painter;
+    switch (key) {
+        case KeyEvent::Select:
+            nav_.pop();
+            break;
+        case KeyEvent::Down:
+            painter.fill_rectangle({0, 0, screen_width, screen_height}, semirand());
+            break;
+        case KeyEvent::Left:
+            pen_color = semirand();
+            break;
+        default:
+            break;
+    }
+    return true;
+}
+
+bool DebugScreenTest::on_encoder(EncoderEvent delta) {
+    pen_size = clip<int32_t>(pen_size + delta, 1, screen_width);
+    return true;
+}
+
+bool DebugScreenTest::on_touch(const TouchEvent event) {
+    Painter painter;
+    pen_pos = event.point;
+    painter.fill_rectangle({pen_pos.x() - pen_size / 2, pen_pos.y() - pen_size / 2, pen_size, pen_size}, pen_color);
+    return true;
+}
+
+uint16_t DebugScreenTest::semirand() {
+    static uint64_t seed{0x0102030405060708};
+    seed = seed * 137;
+    seed = (seed >> 1) | ((seed & 0x01) << 63);
+    return (uint16_t)seed;
+}
+
+void DebugScreenTest::paint(Painter& painter) {
+    painter.fill_rectangle({0, 16, screen_width, screen_height - 16}, Color::white());
+    painter.draw_string({10 * 8, screen_height / 2}, Styles::white, "Use Stylus");
+    pen_color = semirand();
+}
+
+/* DebugLCRView *******************************************************/
 
 /*DebugLCRView::DebugLCRView(NavigationView& nav, std::string lcr_string) {
 

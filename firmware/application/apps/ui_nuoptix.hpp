@@ -25,7 +25,6 @@
 
 #include "ui.hpp"
 #include "ui_widget.hpp"
-#include "ui_font_fixed_8x16.hpp"
 #include "baseband_api.hpp"
 #include "ui_navigation.hpp"
 #include "ui_transmitter.hpp"
@@ -34,6 +33,7 @@
 #include "message.hpp"
 #include "volume.hpp"
 #include "audio.hpp"
+#include "radio_state.hpp"
 
 #define NUOPTIX_TONE_LENGTH ((TONES_SAMPLERATE * 0.049) - 1)  // 49ms
 
@@ -55,9 +55,13 @@ class NuoptixView : public View {
         IMPROVISE
     };
 
+    TxRadioState radio_state_{
+        1750000 /* bandwidth */,
+        1536000 /* sampling rate */
+    };
+
     tx_modes tx_mode{IDLE};
 
-    void on_tuning_frequency_changed(rf::Frequency f);
     void transmit(bool setup);
     void on_tx_progress(const uint32_t progress, const bool done);
 

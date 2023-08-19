@@ -24,10 +24,8 @@
 #include "ui_modemsetup.hpp"
 
 #include "lcr.hpp"
-#include "modems.hpp"
 #include "baseband_api.hpp"
 #include "string_format.hpp"
-#include "cpld_update.hpp"
 
 #include "serializer.hpp"
 
@@ -40,13 +38,8 @@ void LCRView::focus() {
 }
 
 LCRView::~LCRView() {
-    // save app settings
-    app_settings.tx_frequency = transmitter_model.tuning_frequency();
-    settings.save("tx_lcr", &app_settings);
-
     transmitter_model.disable();
-    hackrf::cpld::load_sram_no_verify();  // to leave all RX ok, without ghost signal problem at the exit.
-    baseband::shutdown();                 // better this function at the end, not load_sram() that sometimes produces hang up.
+    baseband::shutdown();
 }
 
 /*
@@ -134,9 +127,6 @@ void LCRView::start_tx(const bool scan) {
 
     modems::generate_data(lcr::generate_message(rgsb, litterals_list, options_ec.selected_index()), lcr_message_data);
 
-    transmitter_model.set_tuning_frequency(persistent_memory::tuned_frequency());
-    transmitter_model.set_sampling_rate(AFSK_TX_SAMPLERATE);
-    transmitter_model.set_baseband_bandwidth(1750000);
     transmitter_model.enable();
 
     memcpy(shared_memory.bb_data.data, lcr_message_data, sizeof(lcr_message_data));
@@ -175,15 +165,6 @@ LCRView::LCRView(NavigationView& nav) {
                   &check_scan,
                   &button_clear,
                   &tx_view});
-
-    // load app settings
-    auto rc = settings.load("tx_lcr", &app_settings);
-    if (rc == SETTINGS_OK) {
-        transmitter_model.set_rf_amp(app_settings.tx_amp);
-        transmitter_model.set_channel_bandwidth(app_settings.channel_bandwidth);
-        transmitter_model.set_tuning_frequency(app_settings.tx_frequency);
-        transmitter_model.set_tx_gain(app_settings.tx_gain);
-    }
 
     options_scanlist.set_selected_index(0);
 
@@ -251,9 +232,9 @@ LCRView::LCRView(NavigationView& nav) {
     };
 
     tx_view.on_edit_frequency = [this, &nav]() {
-        auto new_view = nav.push<FrequencyKeypadView>(transmitter_model.tuning_frequency());
+        auto new_view = nav.push<FrequencyKeypadView>(transmitter_model.target_frequency());
         new_view->on_changed = [this](rf::Frequency f) {
-            transmitter_model.set_tuning_frequency(f);
+            transmitter_model.set_target_frequency(f);
         };
     };
 

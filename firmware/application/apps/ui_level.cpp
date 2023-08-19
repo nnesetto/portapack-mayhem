@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2015 Jared Boone, ShareBrained Technology, Inc.
  * Copyright (C) 2018 Furrtek
+ * Copyright (C) 2023 gullradriel, Nilorea Studio Inc.
  *
  * This file is part of PortaPack.
  *
@@ -22,9 +23,11 @@
 
 #include "ui_level.hpp"
 #include "ui_fileman.hpp"
+#include "ui_freqman.hpp"
 #include "file.hpp"
 
 using namespace portapack;
+using namespace tonekey;
 using portapack::memory::map::backup_ram;
 
 namespace ui {
@@ -34,13 +37,6 @@ void LevelView::focus() {
 }
 
 LevelView::~LevelView() {
-    // save app settings
-    app_settings.lna = field_lna.value();
-    app_settings.vga = field_vga.value();
-    app_settings.rx_amp = field_rf_amp.value();
-
-    settings.save("level", &app_settings);
-
     receiver_model.disable();
     baseband::shutdown();
 }
@@ -67,48 +63,34 @@ LevelView::LevelView(NavigationView& nav)
 
     rssi.set_vertical_rssi(true);
 
-    field_volume.on_change = [this](int32_t v) { this->on_headphone_volume_changed(v); };
-    field_volume.set_value((receiver_model.headphone_volume() - audio::headphone::volume_range().max).decibel() + 99);
-
     change_mode(NFM_MODULATION);              // Start on AM
     field_mode.set_by_value(NFM_MODULATION);  // Reflect the mode into the manual selector
 
-    // HELPER: Pre-setting a manual range, based on stored frequency
-    freq = persistent_memory::tuned_frequency();
-    receiver_model.set_tuning_frequency(freq);
-    button_frequency.set_text("<" + to_string_short_freq(freq) + " MHz>");
-
-    // load auto common app settings
-    auto rc = settings.load("level", &app_settings);
-    if (rc == SETTINGS_OK) {
-        field_lna.set_value(app_settings.lna);
-        field_vga.set_value(app_settings.vga);
-        field_rf_amp.set_value(app_settings.rx_amp);
-        receiver_model.set_rf_amp(app_settings.rx_amp);
-    }
+    freq_ = receiver_model.target_frequency();
+    button_frequency.set_text("<" + to_string_short_freq(freq_) + " MHz>");
 
     button_frequency.on_select = [this, &nav](ButtonWithEncoder& button) {
-        auto new_view = nav_.push<FrequencyKeypadView>(freq);
+        auto new_view = nav_.push<FrequencyKeypadView>(freq_);
         new_view->on_changed = [this, &button](rf::Frequency f) {
-            freq = f;
-            receiver_model.set_tuning_frequency(f);  // Retune to actual freq
-            button_frequency.set_text("<" + to_string_short_freq(freq) + " MHz>");
+            freq_ = f;
+            receiver_model.set_target_frequency(f);  // Retune to actual freq
+            button_frequency.set_text("<" + to_string_short_freq(freq_) + " MHz>");
         };
     };
 
     button_frequency.on_change = [this]() {
         int64_t def_step = freqman_entry_get_step_value(step_mode.selected_index());
-        freq = freq + (button_frequency.get_encoder_delta() * def_step);
-        if (freq < 1) {
-            freq = 1;
+        freq_ = freq_ + (button_frequency.get_encoder_delta() * def_step);
+        if (freq_ < 1) {
+            freq_ = 1;
         }
-        if (freq > (MAX_UFREQ - def_step)) {
-            freq = MAX_UFREQ;
+        if (freq_ > (MAX_UFREQ - def_step)) {
+            freq_ = MAX_UFREQ;
         }
         button_frequency.set_encoder_delta(0);
 
-        receiver_model.set_tuning_frequency(freq);  // Retune to actual freq
-        button_frequency.set_text("<" + to_string_short_freq(freq) + " MHz>");
+        receiver_model.set_target_frequency(freq_);  // Retune to actual freq
+        button_frequency.set_text("<" + to_string_short_freq(freq_) + " MHz>");
     };
 
     field_mode.on_change = [this](size_t, OptionsField::value_t v) {
@@ -134,7 +116,7 @@ LevelView::LevelView(NavigationView& nav)
             audio::output::stop();
         } else if (v == 1) {
             audio::output::start();
-            this->on_headphone_volume_changed((receiver_model.headphone_volume() - audio::headphone::volume_range().max).decibel() + 99);
+            receiver_model.set_headphone_volume(receiver_model.headphone_volume());  // WM8731 hack.
         } else {
         }
     };
@@ -153,13 +135,8 @@ LevelView::LevelView(NavigationView& nav)
     // FILL STEP OPTIONS
     freqman_set_modulation_option(field_mode);
     freqman_set_step_option_short(step_mode);
-    freq_stats_rssi.set_style(&style_white);
-    freq_stats_db.set_style(&style_white);
-}
-
-void LevelView::on_headphone_volume_changed(int32_t v) {
-    const auto new_volume = volume_t::decibel(v - 99) + audio::headphone::volume_range().max;
-    receiver_model.set_headphone_volume(new_volume);
+    freq_stats_rssi.set_style(&Styles::white);
+    freq_stats_db.set_style(&Styles::white);
 }
 
 void LevelView::on_statistics_update(const ChannelStatistics& statistics) {
@@ -198,73 +175,59 @@ size_t LevelView::change_mode(freqman_index_t new_mod) {
         case AM_MODULATION:
             freqman_set_bandwidth_option(new_mod, field_bw);
             // bw DSB (0) default
-            field_bw.set_selected_index(0);
+            field_bw.set_by_value(0);
             baseband::run_image(portapack::spi_flash::image_tag_am_audio);
             receiver_model.set_modulation(ReceiverModel::Mode::AMAudio);
-            receiver_model.set_am_configuration(field_bw.selected_index());
-            field_bw.on_change = [this](size_t n, OptionsField::value_t) { receiver_model.set_am_configuration(n); };
-            receiver_model.set_sampling_rate(3072000);
-            receiver_model.set_baseband_bandwidth(1750000);
+            receiver_model.set_am_configuration(field_bw.selected_index_value());
+            field_bw.on_change = [this](size_t, OptionsField::value_t n) { receiver_model.set_am_configuration(n); };
             text_ctcss.set("             ");
             break;
         case NFM_MODULATION:
             freqman_set_bandwidth_option(new_mod, field_bw);
             // bw 16k (2) default
-            field_bw.set_selected_index(2);
+            field_bw.set_by_value(2);
             baseband::run_image(portapack::spi_flash::image_tag_nfm_audio);
             receiver_model.set_modulation(ReceiverModel::Mode::NarrowbandFMAudio);
-            receiver_model.set_nbfm_configuration(field_bw.selected_index());
-            field_bw.on_change = [this](size_t n, OptionsField::value_t) { receiver_model.set_nbfm_configuration(n); };
-            receiver_model.set_sampling_rate(3072000);
-            receiver_model.set_baseband_bandwidth(1750000);
+            receiver_model.set_nbfm_configuration(field_bw.selected_index_value());
+            field_bw.on_change = [this](size_t, OptionsField::value_t n) { receiver_model.set_nbfm_configuration(n); };
             break;
         case WFM_MODULATION:
             freqman_set_bandwidth_option(new_mod, field_bw);
             // bw 200k (0) only/default
-            field_bw.set_selected_index(0);
+            field_bw.set_by_value(0);
             baseband::run_image(portapack::spi_flash::image_tag_wfm_audio);
             receiver_model.set_modulation(ReceiverModel::Mode::WidebandFMAudio);
-            receiver_model.set_wfm_configuration(field_bw.selected_index());
-            field_bw.on_change = [this](size_t n, OptionsField::value_t) { receiver_model.set_wfm_configuration(n); };
-            receiver_model.set_sampling_rate(3072000);
-            receiver_model.set_baseband_bandwidth(1750000);
+            receiver_model.set_wfm_configuration(field_bw.selected_index_value());
+            field_bw.on_change = [this](size_t, OptionsField::value_t n) { receiver_model.set_wfm_configuration(n); };
             text_ctcss.set("             ");
             break;
+        case SPEC_MODULATION:
+            freqman_set_bandwidth_option(new_mod, field_bw);
+            baseband::run_image(portapack::spi_flash::image_tag_capture);
+            receiver_model.set_modulation(ReceiverModel::Mode::Capture);
+            field_bw.set_by_value(0);
+            field_bw.on_change = [this](size_t, OptionsField::value_t sampling_rate) {
+                auto anti_alias_baseband_bandwidth_filter = filter_bandwidth_for_sampling_rate(sampling_rate);
+                receiver_model.set_sampling_rate(sampling_rate);
+                receiver_model.set_baseband_bandwidth(anti_alias_baseband_bandwidth_filter);
+            };
         default:
             break;
     }
+    if (new_mod != SPEC_MODULATION) {
+        // reset receiver model to fix bug when going from SPEC to audio, the sound is distorded
+        receiver_model.set_sampling_rate(3072000);
+        receiver_model.set_baseband_bandwidth(1750000);
+    }
+
     return step_mode.selected_index();
 }
 
 void LevelView::handle_coded_squelch(const uint32_t value) {
-    static int32_t last_idx = -1;
-
-    float diff, min_diff = value;
-    size_t min_idx{0};
-    size_t c;
-
-    if (field_mode.selected_index() != NFM_MODULATION) {
-        text_ctcss.set("             ");
-        return;
-    }
-
-    // Find nearest match
-    for (c = 0; c < tone_keys.size(); c++) {
-        diff = abs(((float)value / 100.0) - tone_keys[c].second);
-        if (diff < min_diff) {
-            min_idx = c;
-            min_diff = diff;
-        }
-    }
-
-    // Arbitrary confidence threshold
-    if (last_idx < 0 || (unsigned)last_idx != min_idx) {
-        last_idx = min_idx;
-        if (min_diff < 40)
-            text_ctcss.set("T: " + tone_keys[min_idx].first);
-        else
-            text_ctcss.set("             ");
-    }
+    if (field_mode.selected_index() == NFM_MODULATION)
+        text_ctcss.set(tone_key_string_by_value(value, text_ctcss.parent_rect().width() / 8));
+    else
+        text_ctcss.set("        ");
 }
 
 } /* namespace ui */

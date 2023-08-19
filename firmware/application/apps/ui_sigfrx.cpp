@@ -119,21 +119,19 @@ SIGFRXView::SIGFRXView(
         .sampling_rate = 3072000,
         .decimation_factor = 4,
     });
-    receiver_model.set_baseband_bandwidth(1750000);
-
-    receiver_model.set_tuning_frequency(868110000);
-
+    // TODO: use settings.
     receiver_model.set_lna(0);
     receiver_model.set_vga(0);
+    receiver_model.set_target_frequency(868110000);
 
     add_children({&text_type,
                   &text_channel,
                   &text_data,
                   &button_exit});
 
-    text_type.set_style(&style_white);
-    text_channel.set_style(&style_white);
-    text_data.set_style(&style_white);
+    text_type.set_style(&Styles::bg_white);
+    text_channel.set_style(&Styles::bg_white);
+    text_data.set_style(&Styles::bg_white);
 
     button_exit.on_select = [&nav](Button&) {
         nav.pop();

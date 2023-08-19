@@ -47,7 +47,7 @@ using namespace portapack;
 namespace ui {
 
 void AboutView::on_show() {
-    transmitter_model.set_tuning_frequency(1337000000);  // TODO: Change
+    transmitter_model.set_target_frequency(1337000000);  // TODO: Change
     transmitter_model.set_baseband_configuration({
         .mode = 0,
         .sampling_rate = 1536000,
@@ -56,7 +56,6 @@ void AboutView::on_show() {
     transmitter_model.set_rf_amp(true);
     transmitter_model.set_lna(40);
     transmitter_model.set_vga(40);
-    transmitter_model.set_baseband_bandwidth(1750000);
     transmitter_model.enable();
 
     baseband::set_audiotx_data(32, 50, false, 0);
@@ -178,7 +177,7 @@ void AboutView::draw_demoglyph(ui::Point p, char ch, ui::Color* pal) {
     int16_t lbx, il;
 
     // Map ASCII to font bitmap
-    if ((ch >= 32) || (ch < 96))
+    if ((ch >= 32) && (ch < 96))
         che = char_map[ch - 32];
     else
         che = 0xFF;

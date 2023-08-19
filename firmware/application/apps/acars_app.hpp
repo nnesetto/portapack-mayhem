@@ -23,10 +23,12 @@
 #ifndef __ACARS_APP_H__
 #define __ACARS_APP_H__
 
+#include "app_settings.hpp"
+#include "radio_state.hpp"
 #include "ui_widget.hpp"
 #include "ui_receiver.hpp"
+#include "ui_freq_field.hpp"
 #include "ui_rssi.hpp"
-
 #include "log_file.hpp"
 
 #include "acars_packet.hpp"
@@ -56,6 +58,14 @@ class ACARSAppView : public View {
     std::string title() const override { return "ACARS (WIP)"; };
 
    private:
+    NavigationView& nav_;
+    RxRadioState radio_state_{
+        1750000 /* bandwidth */,
+        2457600 /* sampling rate */
+    };
+    app_settings::SettingsManager settings_{
+        "rx_acars.hpp", app_settings::Mode::RX};
+
     bool logging{false};
     uint32_t packet_counter{0};
 
@@ -66,15 +76,13 @@ class ACARSAppView : public View {
     VGAGainField field_vga{
         {18 * 8, 0 * 16}};
     RSSI rssi{
-        {21 * 8, 0, 6 * 8, 4},
-    };
+        {21 * 8, 0, 6 * 8, 4}};
     Channel channel{
-        {21 * 8, 5, 6 * 8, 4},
-    };
+        {21 * 8, 5, 6 * 8, 4}};
 
-    FrequencyField field_frequency{
+    RxFrequencyField field_frequency{
         {0 * 8, 0 * 8},
-    };
+        nav_};
     Checkbox check_log{
         {22 * 8, 21},
         3,
@@ -86,14 +94,7 @@ class ACARSAppView : public View {
 
     std::unique_ptr<ACARSLogger> logger{};
 
-    uint32_t target_frequency_{};
-
-    void update_freq(rf::Frequency f);
-
     void on_packet(const acars::Packet& packet);
-
-    uint32_t target_frequency() const;
-    void set_target_frequency(const uint32_t new_value);
 
     MessageHandlerRegistration message_handler_packet{
         Message::ID::ACARSPacket,

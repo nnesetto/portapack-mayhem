@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2015 Jared Boone, ShareBrained Technology, Inc.
  * Copyright (C) 2018 Furrtek
+ * Copyright (C) 2023 gullradriel, Nilorea Studio Inc.
  *
  * This file is part of PortaPack.
  *
@@ -23,20 +24,21 @@
 #ifndef _UI_LEVEL
 #define _UI_LEVEL
 
-#include "ui.hpp"
-#include "receiver_model.hpp"
-#include "ui_receiver.hpp"
-#include "ui_font_fixed_8x16.hpp"
-#include "freqman.hpp"
 #include "analog_audio_app.hpp"
-#include "audio.hpp"
-#include "ui_mictx.hpp"
-#include "portapack_persistent_memory.hpp"
-#include "baseband_api.hpp"
-#include "ui_spectrum.hpp"
-#include "string_format.hpp"
-#include "file.hpp"
 #include "app_settings.hpp"
+#include "audio.hpp"
+#include "baseband_api.hpp"
+#include "file.hpp"
+#include "freqman_db.hpp"
+#include "portapack_persistent_memory.hpp"
+#include "radio_state.hpp"
+#include "receiver_model.hpp"
+#include "string_format.hpp"
+#include "ui.hpp"
+#include "ui_mictx.hpp"
+#include "ui_receiver.hpp"
+#include "ui_spectrum.hpp"
+#include "ui_styles.hpp"
 
 namespace ui {
 
@@ -47,60 +49,23 @@ class LevelView : public View {
 
     void focus() override;
 
-    const Style style_grey{
-        // level
-        .font = font::fixed_8x16,
-        .background = Color::black(),
-        .foreground = Color::grey(),
-    };
-
-    const Style style_white{
-        // level
-        .font = font::fixed_8x16,
-        .background = Color::black(),
-        .foreground = Color::white(),
-    };
-
-    const Style style_yellow{
-        // Found signal
-        .font = font::fixed_8x16,
-        .background = Color::black(),
-        .foreground = Color::yellow(),
-    };
-
-    const Style style_green{
-        // Found signal
-        .font = font::fixed_8x16,
-        .background = Color::black(),
-        .foreground = Color::green(),
-    };
-
-    const Style style_red{
-        // erasing freq
-        .font = font::fixed_8x16,
-        .background = Color::black(),
-        .foreground = Color::red(),
-    };
-
-    const Style style_blue{
-        // quick level, wait == 0
-        .font = font::fixed_8x16,
-        .background = Color::black(),
-        .foreground = Color::blue(),
-    };
-
     std::string title() const override { return "Level"; };
 
    private:
     NavigationView& nav_;
 
+    RxRadioState radio_state_{};
+    app_settings::SettingsManager settings_{
+        "rx_level", app_settings::Mode::RX};
+
     size_t change_mode(freqman_index_t mod_type);
     void on_statistics_update(const ChannelStatistics& statistics);
     void set_display_freq(int64_t freq);
 
+    // TODO: needed?
     int32_t db{0};
     long long int MAX_UFREQ = {7200000000};  // maximum usable freq
-    rf::Frequency freq = {0};
+    rf::Frequency freq_ = {0};
 
     Labels labels{
         {{0 * 8, 0 * 16}, "LNA:   VGA:   AMP:  VOL:     ", Color::light_grey()},
@@ -116,13 +81,8 @@ class LevelView : public View {
     RFAmpField field_rf_amp{
         {18 * 8, 0 * 16}};
 
-    NumberField field_volume{
-        {24 * 8, 0 * 16},
-        2,
-        {0, 99},
-        1,
-        ' ',
-    };
+    AudioVolumeField field_volume{
+        {24 * 8, 0 * 16}};
 
     OptionsField field_bw{
         {3 * 8, 1 * 16},
@@ -131,7 +91,7 @@ class LevelView : public View {
 
     OptionsField field_mode{
         {15 * 8, 1 * 16},
-        3,
+        4,
         {}};
 
     OptionsField step_mode{
@@ -150,11 +110,11 @@ class LevelView : public View {
             {"audio off", 0},
             {"audio on", 1}
             //{"tone on", 2},
-            //{"tone off", 2},
+            //{"tone off", 3},
         }};
 
     Text text_ctcss{
-        {22 * 8, 3 * 16 + 4, 14 * 8, 1 * 8},
+        {22 * 8, 3 * 16 + 4, 8 * 8, 1 * 8},
         ""};
 
     // RSSI: XX/XX/XXX,dt: XX
@@ -201,7 +161,6 @@ class LevelView : public View {
     };
 
     void handle_coded_squelch(const uint32_t value);
-    void on_headphone_volume_changed(int32_t v);
 
     MessageHandlerRegistration message_handler_coded_squelch{
         Message::ID::CodedSquelch,
@@ -215,9 +174,6 @@ class LevelView : public View {
         [this](const Message* const p) {
             this->on_statistics_update(static_cast<const ChannelStatisticsMessage*>(p)->statistics);
         }};
-    // app save settings
-    std::app_settings settings{};
-    std::app_settings::AppSettings app_settings{};
 };
 
 } /* namespace ui */

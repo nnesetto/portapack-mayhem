@@ -28,6 +28,10 @@
 
 #include "ui.hpp"
 
+// C1 Control Characters are an unprintable range of glyphs missing from the font files
+#define C1_CONTROL_CHARS_START 0x80
+#define C1_CONTROL_CHARS_COUNT 32
+
 namespace ui {
 
 class Glyph {
@@ -86,6 +90,8 @@ class Font {
     Glyph glyph(const char c) const;
 
     Dim line_height() const;
+    Dim char_width() const;
+
     Size size_of(const std::string s) const;
 
    private:

@@ -26,25 +26,11 @@
 #include "ui_widget.hpp"
 #include "ui_navigation.hpp"
 #include "ui_receiver.hpp"
+#include "ui_freq_field.hpp"
 #include "ui_record_view.hpp"
 #include "ui_spectrum.hpp"
-
-#define BW_OPTIONS                                                                                                                 \
-    {"  8k5", 8500},                                                                                                               \
-        {"  11k", 11000},                                                                                                          \
-        {"  16k", 16000},                                                                                                          \
-        {"  25k", 25000},                                                                                                          \
-        {"  50k", 50000},                                                                                                          \
-        {" 100k", 100000},                                                                                                         \
-        {" 250k", 250000},                                                                                                         \
-        {" 500k", 500000}, /* Previous Limit bandwith Option with perfect micro SD write .C16 format operaton.*/                   \
-        {" 600k", 600000}, /* That extended option is still possible to record with FW version Mayhem v1.41 (< 2,5MB/sec)  */      \
-        {" 750k", 750000}, /* From that BW onwards, the LCD is ok, but the recorded file is auto decimated,(not real file size) */ \
-        {"1100k", 1100000},                                                                                                        \
-        {"1750k", 1750000},                                                                                                        \
-        {"2000k", 2000000},                                                                                                        \
-        {"2500k", 2500000},                                                                                                        \
-        {"2750k", 2750000},  // That is our max Capture option , to keep using later / 8 decimation (22Mhz sampling  ADC)
+#include "app_settings.hpp"
+#include "radio_state.hpp"
 
 namespace ui {
 
@@ -53,41 +39,37 @@ class CaptureAppView : public View {
     CaptureAppView(NavigationView& nav);
     ~CaptureAppView();
 
-    void on_hide() override;
-
-    void set_parent_rect(const Rect new_parent_rect) override;
-
     void focus() override;
+    void set_parent_rect(const Rect new_parent_rect) override;
 
     std::string title() const override { return "Capture"; };
 
    private:
     static constexpr ui::Dim header_height = 3 * 16;
 
-    uint32_t sampling_rate = 0;
-    uint32_t anti_alias_baseband_bandwidth_filter = 2500000;  // we rename the previous var , and change type static constexpr to normal var.
-
-    void on_tuning_frequency_changed(rf::Frequency f);
+    NavigationView& nav_;
+    RxRadioState radio_state_{ReceiverModel::Mode::Capture};
+    app_settings::SettingsManager settings_{
+        "rx_capture", app_settings::Mode::RX,
+        app_settings::Options::UseGlobalTargetFrequency};
 
     Labels labels{
         {{0 * 8, 1 * 16}, "Rate:", Color::light_grey()},
+        {{11 * 8, 1 * 16}, "Format:", Color::light_grey()},
     };
 
     RSSI rssi{
-        {24 * 8, 0, 6 * 8, 4},
-    };
+        {24 * 8, 0, 6 * 8, 4}};
 
     Channel channel{
-        {24 * 8, 5, 6 * 8, 4},
-    };
+        {24 * 8, 5, 6 * 8, 4}};
 
-    FrequencyField field_frequency{
+    RxFrequencyField field_frequency{
         {0 * 8, 0 * 16},
-    };
+        nav_};
 
     FrequencyStepView field_frequency_step{
-        {10 * 8, 0 * 16},
-    };
+        {10 * 8, 0 * 16}};
 
     RFAmpField field_rf_amp{
         {16 * 8, 0 * 16}};
@@ -101,7 +83,13 @@ class CaptureAppView : public View {
     OptionsField option_bandwidth{
         {5 * 8, 1 * 16},
         5,
-        {BW_OPTIONS}};
+        {}};
+
+    OptionsField option_format{
+        {18 * 8, 1 * 16},
+        3,
+        {{"C16", RecordView::FileType::RawS16},
+         {"C8", RecordView::FileType::RawS8}}};
 
     RecordView record_view{
         {0 * 8, 2 * 16, 30 * 8, 1 * 16},
@@ -111,7 +99,7 @@ class CaptureAppView : public View {
         16384,
         3};
 
-    spectrum::WaterfallWidget waterfall{};
+    spectrum::WaterfallView waterfall{};
 };
 
 } /* namespace ui */

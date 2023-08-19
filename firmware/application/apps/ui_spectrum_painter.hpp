@@ -29,6 +29,8 @@
 #include "capture_app.hpp"
 #include "baseband_api.hpp"
 
+#include "app_settings.hpp"
+#include "radio_state.hpp"
 #include "portapack.hpp"
 #include "message.hpp"
 
@@ -53,11 +55,11 @@ class SpectrumPainterView : public View {
     std::string title() const override { return "Spec.Painter"; };
 
    private:
-    void on_target_frequency_changed(rf::Frequency f);
-    void set_target_frequency(const rf::Frequency new_value);
-    rf::Frequency target_frequency() const;
-
     NavigationView& nav_;
+    TxRadioState radio_state_{};
+    app_settings::SettingsManager settings_{
+        "tx_painter", app_settings::Mode::TX};
+
     bool image_input_avaliable{false};
     bool tx_active{false};
     uint32_t tx_mode{0};
@@ -92,9 +94,9 @@ class SpectrumPainterView : public View {
         {{1 * 8, footer_location + 2 * 16}, "BW:      Du:    P:", Color::light_grey()},
     };
 
-    FrequencyField field_frequency{
+    TxFrequencyField field_frequency{
         {0 * 8, footer_location + 1 * 16},
-    };
+        nav_};
 
     NumberField field_rfgain{
         {14 * 8, footer_location + 1 * 16},
@@ -125,7 +127,7 @@ class SpectrumPainterView : public View {
     OptionsField option_bandwidth{
         {4 * 8, footer_location + 2 * 16},
         5,
-        {BW_OPTIONS}};
+        {}};
 
     NumberField field_duration{
         {13 * 8, footer_location + 2 * 16},

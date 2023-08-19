@@ -53,6 +53,12 @@ constexpr typename std::underlying_type<E>::type toUType(E enumerator) noexcept 
     return static_cast<typename std::underlying_type<E>::type>(enumerator);
 }
 
+/* Increments an enum value. Enumerator values are assumed to be serial. */
+template <typename E>
+void incr(E& e) {
+    e = static_cast<E>(toUType(e) + 1);
+}
+
 inline uint32_t flp2(uint32_t v) {
     v |= v >> 1;
     v |= v >> 2;
@@ -90,17 +96,83 @@ inline float magnitude_squared(const std::complex<float> c) {
     return r2 + i2;
 }
 
+/* Compute the duration in ms of a buffer. */
+inline uint32_t ms_duration(
+    uint64_t buffer_size,
+    uint32_t sample_rate,
+    uint32_t bytes_per_sample) {
+    /* bytes * sample * second  * ms
+     *         ------   -------   ------
+     *         bytes    samples   seconds
+     */
+    if (sample_rate == 0 || bytes_per_sample == 0)
+        return 0;
+
+    return buffer_size / bytes_per_sample / sample_rate * 1000;
+}
+
 int fast_int_magnitude(int y, int x);
 int int_atan2(int y, int x);
 int32_t int16_sin_s4(int32_t x);
 
+template <typename TEnum>
+struct is_flags_type {
+    static constexpr bool value = false;
+};
+
+template <typename TEnum>
+constexpr bool is_flags_type_v = is_flags_type<TEnum>::value;
+
+#define ENABLE_FLAGS_OPERATORS(type) \
+    template <>                      \
+    struct is_flags_type<type> { static constexpr bool value = true; };
+
+template <typename TEnum>
+constexpr std::enable_if_t<is_flags_type_v<TEnum>, TEnum> operator|(TEnum a, TEnum b) {
+    using under_t = std::underlying_type_t<TEnum>;
+    return static_cast<TEnum>(static_cast<under_t>(a) | static_cast<under_t>(b));
+}
+
+template <typename TEnum>
+constexpr std::enable_if_t<is_flags_type_v<TEnum>, bool> flags_enabled(TEnum value, TEnum flags) {
+    auto i_value = static_cast<std::underlying_type_t<TEnum>>(value);
+    auto i_flags = static_cast<std::underlying_type_t<TEnum>>(flags);
+
+    return (i_value & i_flags) == i_flags;
+}
+
+/* Returns value constrained to min and max. */
+template <class T>
+constexpr const T& clip(const T& value, const T& minimum, const T& maximum) {
+    return std::max(std::min(value, maximum), minimum);
+}
+
+/* Saves state on construction and reverts it when destroyed. */
+template <typename T>
+struct Stash {
+    Stash(T& target)
+        : target_{target}, prev_{target} {
+    }
+
+    ~Stash() {
+        target_ = std::move(prev_);
+    }
+
+   private:
+    T& target_;
+    T prev_;
+};
+
+// TODO: need to decide if this is inclusive or exclusive.
+// The implementations are different and cause the subtle
+// bugs mentioned below.
 template <class T>
 struct range_t {
     const T minimum;
     const T maximum;
 
     constexpr const T& clip(const T& value) const {
-        return std::max(std::min(value, maximum), minimum);
+        return ::clip(value, minimum, maximum);
     }
 
     constexpr void reset_if_outside(T& value, const T& reset_value) const {
@@ -114,13 +186,18 @@ struct range_t {
         return value < minimum;
     }
 
+    /* Exclusive of maximum. */
     constexpr bool contains(const T& value) const {
-        // TODO: Subtle gotcha here! Range test doesn't include maximum!
         return (value >= minimum) && (value < maximum);
     }
 
+    /* Inclusive of maximum. */
+    constexpr bool contains_inc(const T& value) const {
+        return (value >= minimum) && (value <= maximum);
+    }
+
+    /* Exclusive of maximum. */
     constexpr bool out_of_range(const T& value) const {
-        // TODO: Subtle gotcha here! Range test in contains() doesn't include maximum!
         return !contains(value);
     }
 };

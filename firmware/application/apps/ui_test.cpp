@@ -40,7 +40,8 @@ void TestLogger::log_raw_data(const testapp::Packet& packet, const int32_t alt) 
 
 namespace ui {
 
-TestView::TestView(NavigationView& nav) {
+TestView::TestView(NavigationView& nav)
+    : nav_{nav} {
     baseband::run_image(portapack::spi_flash::image_tag_test);
 
     add_children({&labels,
@@ -54,20 +55,7 @@ TestView::TestView(NavigationView& nav) {
                   &button_cal,
                   &check_log});
 
-    field_frequency.set_value(target_frequency_);
     field_frequency.set_step(10000);
-    field_frequency.on_change = [this](rf::Frequency f) {
-        set_target_frequency(f);
-        field_frequency.set_value(f);
-    };
-    field_frequency.on_edit = [this, &nav]() {
-        // TODO: Provide separate modal method/scheme?
-        auto new_view = nav.push<FrequencyKeypadView>(receiver_model.tuning_frequency());
-        new_view->on_changed = [this](rf::Frequency f) {
-            set_target_frequency(f);
-            field_frequency.set_value(f);
-        };
-    };
 
     check_log.on_select = [this](Checkbox&, bool v) {
         logging = v;
@@ -81,19 +69,11 @@ TestView::TestView(NavigationView& nav) {
     if (logger)
         logger->append("saucepan.txt");
 
-    radio::enable({
-        tuning_frequency(),
-        sampling_rate,
-        baseband_bandwidth,
-        rf::Direction::Receive,
-        receiver_model.rf_amp(),
-        static_cast<int8_t>(receiver_model.lna()),
-        static_cast<int8_t>(receiver_model.vga()),
-    });
+    receiver_model.enable();
 }
 
 TestView::~TestView() {
-    radio::disable();
+    receiver_model.disable();
     baseband::shutdown();
 }
 
@@ -127,23 +107,12 @@ void TestView::on_packet(const testapp::Packet& packet) {
     if (logger && logging)
         logger->log_raw_data(packet, raw_alt - cal_value);
 
-    // radio::disable();
-
     /*text_serial.set(packet.serial_number());
         text_voltage.set(unit_auto_scale(packet.battery_voltage(), 2, 3) + "V");
 
         altitude = packet.GPS_altitude();
         latitude = packet.GPS_latitude();
         longitude = packet.GPS_longitude();*/
-}
-
-void TestView::set_target_frequency(const uint32_t new_value) {
-    target_frequency_ = new_value;
-    radio::set_tuning_frequency(tuning_frequency());
-}
-
-uint32_t TestView::tuning_frequency() const {
-    return target_frequency_ - (sampling_rate / 4);
 }
 
 } /* namespace ui */

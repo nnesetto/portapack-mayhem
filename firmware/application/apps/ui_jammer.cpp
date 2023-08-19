@@ -25,7 +25,6 @@
 #include "ui_freqman.hpp"
 
 #include "baseband_api.hpp"
-#include "cpld_update.hpp"
 #include "string_format.hpp"
 
 using namespace portapack;
@@ -35,8 +34,6 @@ namespace ui {
 void RangeView::focus() {
     check_enabled.focus();
 }
-
-extern constexpr Style RangeView::style_info;
 
 void RangeView::update_start(rf::Frequency f) {
     // Change everything except max
@@ -182,13 +179,12 @@ void JammerView::focus() {
 
 JammerView::~JammerView() {
     transmitter_model.disable();
-    hackrf::cpld::load_sram_no_verify();  // to leave all RX ok, without ghost signal problem at the exit .
-    baseband::shutdown();                 // better this function at the end, not load_sram() that sometimes produces hang up.
+    baseband::shutdown();
 }
 
 void JammerView::on_retune(const rf::Frequency freq, const uint32_t range) {
     if (freq) {
-        transmitter_model.set_tuning_frequency(freq);
+        transmitter_model.set_target_frequency(freq);
         text_range_number.set(to_string_dec_uint(range, 2));
     }
 }
@@ -199,9 +195,6 @@ void JammerView::set_jammer_channel(uint32_t i, uint32_t width, uint64_t center,
     jammer_channels[i].center = center;
     jammer_channels[i].duration = 30720 * duration;
 }
-
-extern constexpr Style JammerView::style_val;
-extern constexpr Style JammerView::style_cancel;
 
 void JammerView::start_tx() {
     uint32_t c, i = 0;
@@ -266,9 +259,7 @@ void JammerView::start_tx() {
         button_transmit.set_style(&style_cancel);
         button_transmit.set_text("STOP");
 
-        transmitter_model.set_sampling_rate(3072000U);
         transmitter_model.set_rf_amp(field_amp.value());
-        transmitter_model.set_baseband_bandwidth(3500000U);
         transmitter_model.set_tx_gain(field_gain.value());
         transmitter_model.enable();
 
@@ -286,7 +277,6 @@ void JammerView::stop_tx() {
     button_transmit.set_style(&style_val);
     button_transmit.set_text("START");
     transmitter_model.disable();
-    radio::disable();
     baseband::set_jammer(false, JammerType::TYPE_FSK, 0);
     jamming = false;
     cooling = false;

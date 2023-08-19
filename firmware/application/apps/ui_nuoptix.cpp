@@ -77,11 +77,9 @@ void NuoptixView::transmit(bool setup) {
             timecode = number_timecode.value();
         }
 
-        transmitter_model.set_sampling_rate(1536000U);
         transmitter_model.set_rf_amp(true);
         transmitter_model.set_lna(40);
         transmitter_model.set_vga(40);
-        transmitter_model.set_baseband_bandwidth(1750000);
         transmitter_model.enable();
 
         dtmf_message[0] = '*';  // "Pre-tone for restart" method #1
@@ -156,9 +154,9 @@ NuoptixView::NuoptixView(
     number_timecode.set_value(1);
 
     tx_view.on_edit_frequency = [this, &nav]() {
-        auto new_view = nav.push<FrequencyKeypadView>(receiver_model.tuning_frequency());
+        auto new_view = nav.push<FrequencyKeypadView>(transmitter_model.target_frequency());
         new_view->on_changed = [this](rf::Frequency f) {
-            receiver_model.set_tuning_frequency(f);
+            transmitter_model.target_frequency(f);
         };
     };
 
